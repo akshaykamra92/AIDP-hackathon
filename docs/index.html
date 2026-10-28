@@ -202,7 +202,7 @@ WHERE d.avg_headcount &gt; 0</code></pre>
                   <div class="scope-value"><dt>DEMO-A only</dt><dd class="scope-result">2/3</dd><dd class="scope-detail">2 on-time ÷ 3 eligible</dd></div>
                   <div class="scope-value"><dt>DEMO-B only</dt><dd class="scope-result">0.5</dd><dd class="scope-detail">1 on-time ÷ 2 eligible</dd></div>
                 </dl>
-                <p class="engine-proof-copy"><code>ON_TIME_FULFILLMENT_RATIO</code> v1 uses a fixed <code>RATIO_SUM</code> compiler over a reviewed adapter joining synthetic orders, order lines, shipments, and sites. Order lines are reduced to one row per order; each order retains its fulfillment-time site. The SQL applies each reader's active location grants before calculating the fraction.</p>
+                <p class="engine-proof-copy"><code>ON_TIME_FULFILLMENT_RATIO</code> v2 uses a fixed <code>RATIO_SUM</code> compiler over a reviewed adapter joining synthetic orders, order lines, shipments, and sites. Order lines are reduced to one row per order; each order retains its fulfillment-time site. The SQL applies each reader's active location grants before calculating the fraction.</p>
               </section>
 
               <section class="engine-proof cache-proof" aria-labelledby="cache-proof-title">
