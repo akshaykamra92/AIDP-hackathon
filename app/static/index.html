@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#17343a">
+  <meta name="description" content="Ask the Warehouse returns governed metrics with their definitions, versions, and owners.">
+  <title>Ask the Warehouse · Certified answers</title>
+  <link rel="stylesheet" href="/static/styles.css">
+  <script defer src="/static/app.js"></script>
+</head>
+<body>
+  <div class="site-shell">
+    <header class="site-header">
+      <a class="brand" href="/" aria-label="Ask the Warehouse home">
+        <span class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></span>
+        <span>ASK<span class="brand-light"> THE </span>WAREHOUSE</span>
+      </a>
+      <div class="header-right">
+        <span class="prototype-label">HACKATHON PROTOTYPE</span>
+        <span class="health-pill" id="health-pill"><span class="health-dot" aria-hidden="true"></span><span id="health-text">Checking connection</span></span>
+      </div>
+    </header>
+
+    <main>
+      <section class="hero" aria-labelledby="hero-heading">
+        <div class="hero-copy">
+          <p class="eyebrow"><span class="eyebrow-line" aria-hidden="true"></span> GOVERNED ANSWERS, IN PLAIN ENGLISH</p>
+          <h1 id="hero-heading">Ask a question.<br><span>Know what the number means.</span></h1>
+          <p class="hero-description">A useful answer needs more than a number. Ask the warehouse and see the approved definition, metric version, owner, and SQL behind every certified result.</p>
+        </div>
+        <div class="hero-card" aria-label="Answer approach">
+          <div class="hero-card-top"><span class="hero-card-icon" aria-hidden="true">✓</span><span>CERTIFIED ANSWER CONTRACT</span></div>
+          <ol class="contract-steps">
+            <li><span class="step-number">01</span><span>Match an approved metric</span></li>
+            <li><span class="step-number">02</span><span>Apply allowed filters and period</span></li>
+            <li><span class="step-number">03</span><span>Run the approved SQL template</span></li>
+            <li><span class="step-number">04</span><span>Show the definition and source query</span></li>
+          </ol>
+          <p class="contract-note">If a metric is not approved, the app says so.</p>
+        </div>
+      </section>
+
+      <section class="ask-card" aria-labelledby="ask-heading">
+        <div class="section-heading">
+          <div>
+            <p class="section-kicker">START HERE</p>
+            <h2 id="ask-heading">What would you like to know?</h2>
+          </div>
+          <span class="keyboard-hint">↵ to ask</span>
+        </div>
+        <form id="ask-form">
+          <label class="sr-only" for="question">Your question</label>
+          <div class="question-wrap">
+            <textarea id="question" name="question" rows="2" maxlength="1000" placeholder="For example: What was our turnover in Florida last quarter?" required></textarea>
+            <button class="ask-button" id="ask-button" type="submit"><span id="ask-button-label">Ask the warehouse</span><span aria-hidden="true">→</span></button>
+          </div>
+        </form>
+        <div class="examples" aria-label="Example questions">
+          <span class="examples-label">TRY AN EXAMPLE</span>
+          <button type="button" class="example-chip" data-question="What was our turnover in Florida last quarter?">Florida turnover last quarter <span aria-hidden="true">↗</span></button>
+          <button type="button" class="example-chip" data-question="What's our burnout rate?">Burnout rate <span aria-hidden="true">↗</span></button>
+        </div>
+        <p class="data-notice"><span aria-hidden="true">●</span> Demo uses synthetic employee data only.</p>
+      </section>
+
+      <section id="result-section" class="result-section" aria-live="polite" aria-busy="false" hidden>
+        <div class="result-heading"><p class="section-kicker">YOUR RESULT</p><span id="result-timestamp"></span></div>
+
+        <div id="loading-card" class="state-card loading-card" hidden>
+          <div class="spinner" aria-hidden="true"></div>
+          <div><h2>Checking the metric catalog</h2><p>Validating the definition, filters, and reporting period.</p></div>
+        </div>
+
+        <div id="error-card" class="state-card error-card" role="alert" hidden>
+          <div class="state-symbol" aria-hidden="true">!</div>
+          <div><h2>We couldn't complete that question.</h2><p id="error-message"></p></div>
+        </div>
+
+        <article id="certified-card" class="answer-card" hidden>
+          <div class="answer-topline">
+            <span class="tier-badge certified-badge"><span class="badge-dot" aria-hidden="true"></span> CERTIFIED METRIC</span>
+            <span class="answer-topline-note">Approved definition · Read-only query</span>
+          </div>
+          <div class="answer-main">
+            <div class="answer-value-block">
+              <p class="answer-label" id="answer-metric-name"></p>
+              <div class="answer-value" id="answer-value"></div>
+              <p class="answer-summary" id="answer-summary"></p>
+            </div>
+            <div class="answer-trust">
+              <div class="trust-heading"><span class="trust-icon" aria-hidden="true">✓</span><h3>Why this answer is certified</h3></div>
+              <p id="answer-definition"></p>
+              <dl class="trust-grid">
+                <div><dt>METRIC ID</dt><dd id="answer-metric-id"></dd></div>
+                <div><dt>VERSION</dt><dd id="answer-version"></dd></div>
+                <div><dt>OWNER</dt><dd id="answer-owner"></dd></div>
+                <div><dt>DATA FRESHNESS</dt><dd id="answer-freshness"></dd></div>
+              </dl>
+            </div>
+          </div>
+          <div class="answer-detail-bar">
+            <span><strong id="answer-period"></strong><span class="detail-separator" aria-hidden="true">•</span><span id="answer-row-count"></span></span>
+            <button id="sql-toggle" class="text-button" type="button" aria-expanded="false" aria-controls="sql-panel">Show SQL <span aria-hidden="true">⌄</span></button>
+          </div>
+          <div id="warnings" class="warnings" hidden></div>
+          <div id="answer-table-wrap" class="answer-table-wrap" hidden>
+            <h3>Result rows</h3>
+            <div class="table-scroll"><table id="answer-table"><thead></thead><tbody></tbody></table></div>
+          </div>
+          <div id="sql-panel" class="sql-panel" hidden>
+            <div class="sql-panel-heading"><h3>Compiled SQL</h3><span>Approved metric template with bind variables; end date is exclusive</span></div>
+            <pre><code id="answer-sql"></code></pre>
+            <div id="binds-wrap" class="binds-wrap" hidden><h4>Bind values</h4><pre><code id="answer-binds"></code></pre></div>
+          </div>
+        </article>
+
+        <article id="exploratory-card" class="exploratory-card" hidden>
+          <div class="answer-topline"><span class="tier-badge exploratory-badge"><span class="badge-dot" aria-hidden="true"></span> NO CERTIFIED ANSWER</span></div>
+          <div class="exploratory-body">
+            <div class="exploratory-mark" aria-hidden="true">?</div>
+            <div class="exploratory-content">
+              <h2>We don't have an approved definition for that yet.</h2>
+              <p id="exploratory-message"></p>
+              <div id="unmapped-terms" class="unmapped-terms" hidden></div>
+              <div class="nearest-wrap" id="nearest-wrap" hidden>
+                <h3>Closest certified metrics</h3>
+                <div id="nearest-metrics" class="nearest-metrics"></div>
+              </div>
+              <div class="request-row">
+                <button id="request-button" class="request-button" type="button">Request certification <span aria-hidden="true">→</span></button>
+                <span id="request-feedback" role="status"></span>
+              </div>
+            </div>
+          </div>
+        </article>
+      </section>
+
+      <section class="why-card" aria-label="Why certified metrics matter">
+        <div class="why-icon" aria-hidden="true">“</div>
+        <div><h2>Two right-looking answers can mean different things.</h2><p>Turnover may include internal transfers or exclude them. This demo's certified turnover definition excludes internal transfers, so the choice is visible and repeatable.</p></div>
+        <button id="compare-button" class="compare-button" type="button">See the difference <span aria-hidden="true">→</span></button>
+      </section>
+      <section id="comparison-card" class="comparison-card" aria-live="polite" hidden>
+        <div class="comparison-heading"><div><p class="section-kicker">DEFINITION COMPARISON</p><h2>Same data. Different numerator.</h2></div><span id="comparison-period"></span></div>
+        <div class="comparison-grid">
+          <div class="comparison-metric approved"><span class="comparison-tag">CERTIFIED</span><strong id="comparison-approved">—</strong><p>Excludes internal transfers</p><small id="comparison-approved-count"></small></div>
+          <div class="comparison-metric ad-hoc"><span class="comparison-tag">ILLUSTRATIVE AD HOC INTERPRETATION</span><strong id="comparison-ad-hoc">—</strong><p>Includes internal transfers</p><small id="comparison-ad-hoc-count"></small></div>
+        </div>
+        <p id="comparison-note" class="comparison-note"></p>
+      </section>
+    </main>
+
+    <footer class="site-footer"><span>Built with Codex + Oracle AI Database 26ai</span><span class="footer-disclaimer"><span aria-hidden="true">●</span> Synthetic data only. No real employee or patient data.</span></footer>
+  </div>
+</body>
+</html>
