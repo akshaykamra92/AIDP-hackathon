@@ -1,6 +1,8 @@
-# AI Judge submission draft
+# AI Judge submission draft and evaluation record
 
-Use the four paragraphs below as submission copy. This is a **hackathon prototype using synthetic data**, not a production deployment. The public source repository is [AIDP-hackathon](https://github.com/akshaykamra92/AIDP-hackathon). The live FreeSQL deployment and a public demo tunnel have been validated. Enter the current tunnel URL in the submission form; it is temporary and does not belong in this repository.
+The four paragraphs below are prepared submission copy for this **synthetic-data hackathon prototype**. The [public repository](https://github.com/akshaykamra92/AIDP-hackathon) contains the live app's source, while the [GitHub Pages demo](https://akshaykamra92.github.io/AIDP-hackathon/) is a durable **static replay** with no database calls or saved requests. The live FreeSQL-backed app passed 3/3 browser workflows through a temporary public tunnel: certified turnover, definition comparison, and unsupported metric with a saved certification request. Keep the changing tunnel URL out of this file.
+
+As of 2026-10-28, the AI Judge event is closed and rejected the attempted submission of this version. It has **no new score**; the displayed **91.7** belongs to a prior version.
 
 ## What did you build?
 
@@ -25,11 +27,11 @@ We used Oracle AI Database 26ai on FreeSQL for `WH_` synthetic workforce tables,
 | Demand Reality (25%) | Concrete definition ambiguity and the synthetic 1.89% versus 2.33% example. | No customer interviews, live usage, or measured reporting losses yet. |
 | Customer / Market (20%) | Named users (leaders and analysts), sponsor (data governance / analytics), and portability to other metric domains. | No market size, purchasing validation, or distribution evidence. |
 | Solution Fit (20%) | Five certified metrics, visible definition and provenance, unsupported-qualifier refusal, and certification request. | Fixed vocabulary and no approval workflow, sign-in, or row-level permissions. |
-| Technical / Demo (20%) | Live FreeSQL deployment and public tunnel validated; Oracle 26ai schema and annotations, reviewed SQL with binds, FastAPI UI, synthetic seed, 23 unit tests, and a reproducible three-minute script. | The tunnel URL is temporary; refresh and verify it immediately before submission. Durable hosting remains future work. |
+| Technical / Demo (20%) | Live FreeSQL app passed 3/3 browser workflows; Oracle 26ai schema and annotations, reviewed SQL with binds, FastAPI UI, synthetic seed, 23 unit tests, and a durable recorded GitHub Pages demo. | The static replay makes no database calls; the live tunnel is temporary. Durable live hosting remains future work. |
 | Differentiation (15%) | Certified answers use fixed approved SQL; similar-looking definitions are compared side by side; unsupported questions do not get an invented number. | The comparison is fixed and illustrative, not a live Select AI answer. AI-assisted development does not imply an AI model is called at runtime. |
 
-## Judge feedback loop
+## Feedback loop for a future judging window
 
-1. Submit the checked public repository and working demo URL with the four paragraphs above.
+1. Submit the checked public repository and durable recorded demo with the four paragraphs above. Add a freshly verified live link if one is available.
 2. Save the judge's scores and exact feedback for each criterion. Treat them as evaluation input, not evidence of market demand or live technical performance.
 3. Address the lowest-scoring issue with a concrete change or a clearer demonstration, run the local tests and live walkthrough again, then ask the judge to reassess. Keep every claim tied to a visible artifact or test result.

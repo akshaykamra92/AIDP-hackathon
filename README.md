@@ -4,6 +4,12 @@
 
 This is a hackathon prototype with **synthetic data only**. The same pattern can govern metrics in another organization by replacing the source tables, approved definitions, and question vocabulary.
 
+## Demo and evaluation status
+
+The [GitHub Pages demo](https://akshaykamra92.github.io/AIDP-hackathon/) is a durable **static replay** of three synthetic scenarios. It makes no database calls and does not save certification requests. The live FreeSQL-backed app was also checked in a browser through a temporary public tunnel: **3/3 workflows passed** (certified Florida turnover, definition comparison, and unsupported burnout metric with a saved certification request). The tunnel address is temporary; use the local run steps below for a repeatable live demo.
+
+As of 2026-10-28, the AI Judge event is closed and rejected the attempted submission of this version, so it has **no new score**. A displayed **91.7** score belongs to an earlier version.
+
 ## What happens when you ask
 
 1. A conservative question parser maps supported phrasing to a metric, allowed dimensions and filters, and a half-open reporting period `[start, end)`.
