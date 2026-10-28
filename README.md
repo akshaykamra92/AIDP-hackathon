@@ -85,7 +85,7 @@ After configuring the local `.env` and setting up the database for your selected
 docker compose up --build -d
 ```
 
-Open `http://127.0.0.1:8000/` by default. Set `APP_PORT` in your shell or local `.env` to change the host port. The container runs the app and checks `/health`; it does **not** run schema scripts or move source data. Run `docker compose down` to stop it. Docker was not available in the development sandbox, so the image and Compose configuration have static checks but still need an end-to-end container run on a Docker host.
+Open `http://127.0.0.1:8000/` by default. Set `APP_PORT` in your shell or local `.env` to change the host port. The container runs the app and checks `/health`; it does **not** run schema scripts or move source data. Run `docker compose down` to stop it. Docker Desktop was paused during development, so the Compose configuration passed validation but the image still needs an end-to-end build and run on a Docker host.
 
 ## Try the demo
 
