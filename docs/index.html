@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#17383b">
+  <meta name="description" content="A recorded, synthetic-data walkthrough of Ask the Warehouse: certified metrics, SQL provenance, definition comparison, and honest refusals.">
+  <title>Ask the Warehouse · Recorded demo</title>
+  <link rel="stylesheet" href="site/recorded.css">
+  <script defer src="site/recorded.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#walkthrough">Skip to the walkthrough</a>
+  <div class="page-shell">
+    <header class="site-header">
+      <div class="brand" aria-label="Ask the Warehouse">
+        <span class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></span>
+        <span>ASK <span class="brand-muted">THE</span> WAREHOUSE</span>
+      </div>
+      <div class="header-actions">
+        <span class="recording-chip"><span aria-hidden="true"></span> RECORDED ORACLE DEMO</span>
+        <a class="header-link" href="https://github.com/akshaykamra92/AIDP-hackathon" target="_blank" rel="noopener noreferrer">View public repo <span aria-hidden="true">↗</span></a>
+      </div>
+    </header>
+
+    <main>
+      <section class="hero" aria-labelledby="hero-title">
+        <div class="hero-copy">
+          <span class="hero-recording">RECORDED ORACLE DEMO</span>
+          <p class="eyebrow"><span class="eyebrow-rule" aria-hidden="true"></span> GOVERNED ANSWERS, IN PLAIN ENGLISH</p>
+          <h1 id="hero-title">Ask a question.<br><span>Trust the number.</span></h1>
+          <p class="hero-lede">A useful answer needs more than a figure. See the approved definition, owner, reporting period, and fixed SQL behind a certified workforce metric.</p>
+          <a class="primary-link" href="#walkthrough">Explore the walkthrough <span aria-hidden="true">↓</span></a>
+        </div>
+        <div class="hero-proof" aria-label="Certified answer contract">
+          <p class="proof-label">THE ANSWER CONTRACT</p>
+          <ol>
+            <li><span>01</span> Match an approved metric</li>
+            <li><span>02</span> Validate the filters and period</li>
+            <li><span>03</span> Run fixed SQL with bind values</li>
+            <li><span>04</span> Return the number with provenance</li>
+          </ol>
+          <p>When a definition is missing, the app refuses to invent a result.</p>
+        </div>
+      </section>
+
+      <aside class="replay-notice" role="note" aria-label="Recorded demo disclosure">
+        <span class="notice-icon" aria-hidden="true">◉</span>
+        <p><strong>Recorded Oracle demo · static replay.</strong> The figures below come from the documented synthetic Oracle seed and verification query. This page makes no database calls and saves no certification requests. The <a href="https://github.com/akshaykamra92/AIDP-hackathon" target="_blank" rel="noopener noreferrer">public repository</a> contains the live FastAPI application, Oracle scripts, and tests.</p>
+      </aside>
+
+      <section id="walkthrough" class="walkthrough" aria-labelledby="walkthrough-title">
+        <div class="section-intro">
+          <div>
+            <p class="section-kicker">THREE MOMENTS IN THE PRODUCT</p>
+            <h2 id="walkthrough-title">Follow one question through the warehouse.</h2>
+          </div>
+          <p>Choose a step to inspect its recorded outcome.</p>
+        </div>
+
+        <div class="demo-grid">
+          <nav class="scenario-list" aria-label="Recorded scenarios">
+            <button class="scenario-button is-selected" type="button" data-scenario="certified" aria-controls="panel-certified" aria-pressed="true">
+              <span class="scenario-number">01</span>
+              <span class="scenario-copy"><strong>Get a certified answer</strong><span>“What was our turnover in Florida last quarter?”</span></span>
+              <span class="scenario-arrow" aria-hidden="true">→</span>
+            </button>
+            <button class="scenario-button" type="button" data-scenario="comparison" aria-controls="panel-comparison" aria-pressed="false">
+              <span class="scenario-number">02</span>
+              <span class="scenario-copy"><strong>Compare definitions</strong><span>What changes when transfers count?</span></span>
+              <span class="scenario-arrow" aria-hidden="true">→</span>
+            </button>
+            <button class="scenario-button" type="button" data-scenario="refusal" aria-controls="panel-refusal" aria-pressed="false">
+              <span class="scenario-number">03</span>
+              <span class="scenario-copy"><strong>See an honest refusal</strong><span>“What's our burnout rate?”</span></span>
+              <span class="scenario-arrow" aria-hidden="true">→</span>
+            </button>
+            <div class="scenario-footnote"><span aria-hidden="true">✦</span> All examples use synthetic employee and location data.</div>
+          </nav>
+
+          <div class="result-frame">
+            <p id="scenario-announcement" class="sr-only" role="status" aria-live="polite"></p>
+
+            <article id="panel-certified" class="result-panel" aria-labelledby="certified-title">
+              <div class="result-topline"><span class="tier-chip certified-chip"><span aria-hidden="true">●</span> CERTIFIED METRIC</span><span>Recorded result · Q3 2026</span></div>
+              <div class="answer-heading">
+                <p class="result-question">WHAT WAS OUR TURNOVER IN FLORIDA LAST QUARTER?</p>
+                <h3 id="certified-title">Turnover rate <span>for Florida</span></h3>
+                <div class="answer-value">1.89<span>%</span></div>
+                <p class="answer-caption">17 approved exits ÷ 901.67 average monthly headcount × 100</p>
+              </div>
+              <div class="definition-box">
+                <div class="definition-icon" aria-hidden="true">✓</div>
+                <div><h4>The approved definition</h4><p>100 times voluntary, involuntary, and retirement events in the selected period divided by average monthly month-end headcount. Internal transfers are excluded. The rate uses event-time location and job family and is not annualized.</p></div>
+              </div>
+              <dl class="metadata-grid">
+                <div><dt>METRIC ID</dt><dd>TURNOVER_RATE</dd></div>
+                <div><dt>VERSION</dt><dd>1</dd></div>
+                <div><dt>OWNER</dt><dd>People Analytics</dd></div>
+                <div><dt>RESULT ROWS</dt><dd>1</dd></div>
+                <div><dt>REPORTING PERIOD</dt><dd>Jul 1 – Sep 30, 2026</dd></div>
+                <div><dt>DATA FRESHNESS</dt><dd>Covered through Sep 30, 2026; ingestion time unavailable</dd></div>
+              </dl>
+              <details class="sql-details">
+                <summary>Inspect approved SQL and bind values <span aria-hidden="true">⌄</span></summary>
+                <div class="sql-content">
+                  <p>The application selects this fixed SQL for <code>TURNOVER_RATE</code>. The question supplies only approved bind values. The end date is exclusive.</p>
+                  <pre><code>WITH monthly_hc AS (
+  SELECT h.month_start, SUM(h.headcount) AS monthly_count
+  FROM WH_HEADCOUNT_MONTH h
+  JOIN WH_LOCATION l ON l.location_id = h.location_id
+  WHERE h.month_start &gt;= :start_date
+    AND h.month_start &lt; :end_date
+    AND l.state = :state
+  GROUP BY h.month_start
+), denom AS (
+  SELECT AVG(monthly_count) AS avg_headcount
+  FROM monthly_hc
+  HAVING COUNT(*) = :expected_months
+), numer AS (
+  SELECT COUNT(*) AS terminations
+  FROM WH_TERMINATION t
+  JOIN WH_LOCATION l ON l.location_id = t.location_id
+  WHERE t.term_date &gt;= :start_date
+    AND t.term_date &lt; :end_date
+    AND l.state = :state
+    AND t.term_type &lt;&gt; 'INTERNAL_TRANSFER'
+)
+SELECT ROUND(100 * NVL(n.terminations, 0) / d.avg_headcount, 4) AS value
+FROM denom d LEFT JOIN numer n ON 1 = 1
+WHERE d.avg_headcount &gt; 0</code></pre>
+                  <div class="binds"><h4>Bound values</h4><dl><div><dt>:start_date</dt><dd>2026-07-01</dd></div><div><dt>:end_date</dt><dd>2026-10-01 <small>(exclusive)</small></dd></div><div><dt>:state</dt><dd>FL</dd></div><div><dt>:expected_months</dt><dd>3</dd></div></dl></div>
+                  <a class="source-link" href="https://github.com/akshaykamra92/AIDP-hackathon/blob/main/app/metrics.py" target="_blank" rel="noopener noreferrer">Review the SQL compiler in the repo <span aria-hidden="true">↗</span></a>
+                </div>
+              </details>
+            </article>
+
+            <article id="panel-comparison" class="result-panel" aria-labelledby="comparison-title" hidden>
+              <div class="result-topline"><span class="tier-chip comparison-chip"><span aria-hidden="true">◈</span> DEFINITION COMPARISON</span><span>Recorded result · Florida · Q3 2026</span></div>
+              <div class="comparison-heading"><p class="result-question">SAME SYNTHETIC DATA. DIFFERENT NUMERATOR.</p><h3 id="comparison-title">Both answers look plausible.</h3><p>Only one follows the approved turnover definition.</p></div>
+              <div class="comparison-cards">
+                <div class="comparison-card approved"><span>CERTIFIED</span><strong>1.89%</strong><p>Excludes internal transfers</p><small>17 exits counted</small></div>
+                <div class="comparison-card illustrative"><span>ILLUSTRATIVE AD HOC</span><strong>2.33%</strong><p>Includes internal transfers</p><small>21 events counted</small></div>
+              </div>
+              <div class="comparison-breakdown">
+                <div class="breakdown-heading"><h4>Where the difference comes from</h4><strong>+0.44 percentage points</strong></div>
+                <div class="stacked-bar" role="img" aria-label="Of 21 Florida employment events, 17 are approved exits and 4 are internal transfers"><span class="approved-segment"></span><span class="transfer-segment"></span></div>
+                <div class="legend"><span><i class="legend-approved" aria-hidden="true"></i> 17 approved exits</span><span><i class="legend-transfer" aria-hidden="true"></i> 4 internal transfers</span></div>
+                <p>Both rates divide by the same 901.67 average monthly headcount. The second number is a fixed illustrative interpretation, not a certified metric or a live AI answer.</p>
+              </div>
+              <p class="result-source">Source: the deterministic <a href="https://github.com/akshaykamra92/AIDP-hackathon/blob/main/sql/03_verify.sql" target="_blank" rel="noopener noreferrer">Oracle verification query <span aria-hidden="true">↗</span></a> in the public repo.</p>
+            </article>
+
+            <article id="panel-refusal" class="result-panel" aria-labelledby="refusal-title" hidden>
+              <div class="result-topline"><span class="tier-chip refusal-chip"><span aria-hidden="true">●</span> NO CERTIFIED ANSWER</span><span>Recorded product behavior</span></div>
+              <div class="refusal-heading"><span class="question-mark" aria-hidden="true">?</span><div><p class="result-question">WHAT'S OUR BURNOUT RATE?</p><h3 id="refusal-title">No approved definition exists yet.</h3></div></div>
+              <p class="refusal-copy">The question cannot be mapped to a certified metric in this catalog. The application returns no numerical answer and offers a certification request instead of guessing a rate.</p>
+              <div class="refusal-reason"><span>REFUSAL REASON</span><code>UNSUPPORTED_METRIC</code></div>
+              <div class="request-preview">
+                <h4>What happens next?</h4>
+                <p>In the live app, a request is recorded for a metric owner to review. Preview that flow here without writing to the database.</p>
+                <button id="preview-request" class="request-button" type="button" aria-expanded="false" aria-controls="request-receipt">Preview certification request <span aria-hidden="true">→</span></button>
+                <div id="request-receipt" class="request-receipt" hidden role="status"><strong>Request preview</strong><span>Question: “What's our burnout rate?”</span><span>Proposed status: OPEN</span><small>This static replay did not submit or save a request.</small></div>
+              </div>
+              <p class="result-source">The live endpoint and <code>WH_METRIC_REQUEST</code> table are documented in the <a href="https://github.com/akshaykamra92/AIDP-hackathon" target="_blank" rel="noopener noreferrer">public repo <span aria-hidden="true">↗</span></a>.</p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="build-section" aria-labelledby="build-title">
+        <div><p class="section-kicker">PORTABLE BY DESIGN</p><h2 id="build-title">Bring your own governed metrics.</h2><p>The question interface stays the same while each organization supplies its approved metric catalog, reviewed SQL, and source data mapping. The demo includes five synthetic workforce metrics and deterministic tests.</p></div>
+        <a href="https://github.com/akshaykamra92/AIDP-hackathon" target="_blank" rel="noopener noreferrer">Explore the source and setup guide <span aria-hidden="true">↗</span></a>
+      </section>
+    </main>
+
+    <footer class="site-footer"><span>Ask the Warehouse · Oracle AI Database 26ai + Codex</span><span>Recorded walkthrough · Synthetic data only · No live database calls</span></footer>
+  </div>
+</body>
+</html>
