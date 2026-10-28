@@ -204,23 +204,13 @@ class WarehouseService:
 
     def demo_turnover_comparison(self) -> Dict[str, Any]:
         question = "What was turnover in Florida Q3 2026?"
-        parsed = parse_question(
-            question,
-            locations=self.repository.list_locations(),
-            job_families=self.repository.list_job_families(),
-            today=self.today,
-        )
-        row = self.repository.get_metric("TURNOVER_RATE")
-        if parsed.intent is None or row is None:
-            raise DatabaseUnavailable("The fixed turnover demo could not produce a certified answer.")
-        try:
-            compiled = compile_certified(parsed.intent, MetricDefinition.from_row(row))
-        except CompileError as exc:
-            raise DatabaseUnavailable("The fixed turnover demo metric is not certified.") from exc
-        if self._check_coverage(parsed.intent):
-            raise DatabaseUnavailable("The fixed turnover demo period has incomplete source data.")
-        certified_rows = self.repository.run_readonly(compiled.sql, compiled.binds)
-        if len(certified_rows) != 1 or certified_rows[0].get("value") is None:
+        certified_answer = self.ask(question)
+        certified_rows = certified_answer.get("rows", [])
+        if (
+            certified_answer.get("tier") != "CERTIFIED"
+            or len(certified_rows) != 1
+            or certified_rows[0].get("value") is None
+        ):
             raise DatabaseUnavailable("The fixed turnover demo has no certified result.")
         binds = {"state": "FL", "start_date": date(2026, 7, 1), "end_date": date(2026, 10, 1)}
         rows = self.repository.run_readonly(DEMO_COMPARISON_SQL, binds)

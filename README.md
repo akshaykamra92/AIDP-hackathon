@@ -32,7 +32,19 @@ cp .env.example .env
 
 Set `ORACLE_USER` and `ORACLE_PASSWORD` for the same schema where you run the SQL scripts. Copy `ORACLE_DSN` from FreeSQL's **Connect to the Database → Python** panel; its hosted form is `tcps://db.freesql.com:2484/<your-service-name>`. Python thin mode connects without wallet files. The template includes `DEMO_AS_OF_DATE=2026-10-28`, which pins “last quarter” to Q3 2026 for the repeatable hackathon demo. Keep credentials out of source control and terminal output.
 
-In a FreeSQL worksheet or SQLcl session connected to that schema, run these files **one at a time, as scripts**:
+Parse the reviewed SQL scripts locally before changing the database:
+
+```bash
+python scripts/deploy.py --dry-run
+```
+
+To reset the `WH_` schema, load the synthetic seed, and check its expected results through the configured Python connection, run:
+
+```bash
+python scripts/deploy.py --apply
+```
+
+For a read-only check after deployment, run `python scripts/deploy.py --verify-only`. This check allows answer logs and certification requests created by the app while still checking the synthetic seed tables exactly. The runner accepts only the three repository-owned SQL files and does not print credentials. You can also run these files **one at a time, as scripts** in a FreeSQL worksheet or SQLcl session connected to the same schema:
 
 1. [`sql/01_schema.sql`](sql/01_schema.sql) — create the `WH_` tables, comments, and 26ai annotations.
 2. [`sql/02_seed.sql`](sql/02_seed.sql) — load deterministic synthetic records and five certified metrics.

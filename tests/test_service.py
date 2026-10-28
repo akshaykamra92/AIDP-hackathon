@@ -123,13 +123,20 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual({"request_id": 42, "status": "OPEN"}, result)
         self.assertEqual(["What was our burnout rate?"], self.repository.requested)
 
-    def test_demo_comparison_does_not_log_an_answer(self):
+    def test_demo_comparison_audits_its_certified_answer(self):
         result = self.service.demo_turnover_comparison()
         self.assertEqual(17, result["certified"]["separations"])
         self.assertEqual(21, result["ad_hoc"]["separations"])
         self.assertGreater(result["ad_hoc"]["value"], result["certified"]["value"])
         self.assertEqual(2, len(self.repository.executed))
-        self.assertEqual([], self.repository.logged)
+        self.assertEqual(1, len(self.repository.logged))
+        audit = self.repository.logged[0]
+        self.assertEqual("CERTIFIED", audit["tier"])
+        self.assertEqual("TURNOVER_RATE", audit["metric_id"])
+        self.assertEqual(1, audit["metric_version"])
+        self.assertEqual(1, audit["row_count"])
+        self.assertEqual(self.repository.executed[0][0], audit["compiled_sql"])
+        self.assertEqual(self.repository.executed[0][1], audit["binds"])
 
 
 if __name__ == "__main__":
