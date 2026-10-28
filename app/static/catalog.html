@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#17343a">
+  <meta name="description" content="Explore certified metrics registered against an Oracle database view, with definitions and query provenance.">
+  <title>Ask the Warehouse · Metric explorer</title>
+  <link rel="stylesheet" href="/static/catalog.css">
+  <script defer src="/static/catalog.js"></script>
+</head>
+<body>
+  <div class="page-shell">
+    <header class="topbar">
+      <a class="brand" href="/catalog" aria-label="Ask the Warehouse metric explorer">
+        <span class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></span>
+        <span>ASK <span class="brand-light">THE</span> WAREHOUSE</span>
+      </a>
+      <nav class="topnav" aria-label="Main navigation">
+        <a href="/" id="demo-link" hidden>Synthetic demo</a>
+        <span class="connection-pill" id="connection-pill" role="status" aria-live="polite"><span class="connection-dot" aria-hidden="true"></span><span id="connection-text">Checking Oracle</span></span>
+      </nav>
+    </header>
+
+    <main>
+      <section class="hero" aria-labelledby="hero-title">
+        <div>
+          <p class="eyebrow">ORACLE METRIC EXPLORER</p>
+          <h1 id="hero-title">Ask for a number.<br><span>See its meaning.</span></h1>
+          <p class="hero-copy">Select a certified metric from your connected database. Every result carries its approved definition, owner, version, source view, and the exact query with bind values.</p>
+        </div>
+        <div class="hero-note" aria-label="How registered metrics work">
+          <span class="note-check" aria-hidden="true">✓</span>
+          <div><strong>Definitions live in Oracle</strong><p>Metric owners register, review, and certify versioned definitions before they appear here. Queries read the source view and save answer provenance to an audit log.</p></div>
+        </div>
+      </section>
+
+      <section class="explorer-grid" id="catalog" aria-label="Metric query builder">
+        <div class="panel query-panel">
+          <div class="panel-heading">
+            <div><p class="section-kicker">01 · CHOOSE A METRIC</p><h2>Build a certified query</h2></div>
+            <span class="read-only-tag">NO SOURCE WRITES</span>
+          </div>
+
+          <p id="catalog-feedback" class="feedback" role="status" aria-live="polite">Loading certified metrics…</p>
+          <form id="metric-form" novalidate hidden>
+            <div class="field">
+              <label for="metric-select">Certified metric</label>
+              <select id="metric-select" name="metric_id" required></select>
+            </div>
+
+            <div class="period-grid">
+              <div class="field">
+                <label for="start-date">Start date <span>(included)</span></label>
+                <input id="start-date" name="start_date" type="date" required>
+              </div>
+              <div class="field">
+                <label for="end-date">End date <span>(excluded)</span></label>
+                <input id="end-date" name="end_date" type="date" required>
+              </div>
+            </div>
+            <p class="field-hint">Use the first day of each month. For July through September, enter July 1 and October 1.</p>
+
+            <fieldset class="choice-fieldset" id="dimension-fieldset">
+              <legend>Group by <span>(optional)</span></legend>
+              <div id="dimension-options" class="choice-list"></div>
+            </fieldset>
+
+            <fieldset class="choice-fieldset" id="filter-fieldset">
+              <legend>Filter values <span>(optional)</span></legend>
+              <div id="filter-rows" class="filter-rows"></div>
+              <button id="add-filter" class="secondary-button" type="button">+ Add filter</button>
+              <p class="field-hint">Only the selected metric's approved filter columns are available.</p>
+            </fieldset>
+
+            <p id="form-feedback" class="form-feedback" role="alert" hidden></p>
+            <button id="run-button" class="primary-button" type="submit"><span id="run-label">Run certified query</span><span aria-hidden="true">→</span></button>
+          </form>
+          <button id="reload-button" class="secondary-button" type="button" hidden>Retry catalog</button>
+        </div>
+
+        <aside class="panel definition-panel" id="definition-panel" aria-labelledby="definition-title">
+          <p class="section-kicker">02 · UNDERSTAND THE DEFINITION</p>
+          <h2 id="definition-title">Before you query</h2>
+          <p id="definition-empty" class="muted">Choose a certified metric to see what it counts and who approved it.</p>
+          <div id="definition-content" hidden>
+            <div class="definition-head"><span class="certified-tag">● CERTIFIED</span><span id="definition-id" class="metric-id"></span></div>
+            <h3 id="definition-name"></h3>
+            <p id="definition-text" class="definition-text"></p>
+            <dl class="metadata-grid">
+              <div><dt>OWNER</dt><dd id="definition-owner"></dd></div>
+              <div><dt>VERSION</dt><dd id="definition-version"></dd></div>
+              <div><dt>UNIT</dt><dd id="definition-unit"></dd></div>
+              <div><dt>AGGREGATION</dt><dd id="definition-aggregation"></dd></div>
+              <div class="full"><dt>ORACLE SOURCE VIEW</dt><dd id="definition-source"></dd></div>
+              <div><dt>REVIEWED</dt><dd id="definition-reviewed"></dd></div>
+              <div><dt>CERTIFIED</dt><dd id="definition-certified"></dd></div>
+            </dl>
+            <p id="definition-review-note" class="review-note" hidden></p>
+          </div>
+        </aside>
+      </section>
+
+      <section id="result-section" class="result-section" aria-labelledby="result-title" aria-live="polite" hidden>
+        <div class="result-heading"><p class="section-kicker">03 · VERIFIED RESULT</p><h2 id="result-title">Certified answer</h2></div>
+        <p id="query-loading" class="query-loading" role="status" hidden>Running the approved query and recording its provenance…</p>
+        <div id="result-error" class="result-error" role="alert" hidden></div>
+        <article id="result-card" class="result-card" hidden>
+          <div class="result-topline"><span class="certified-tag">● CERTIFIED ANSWER</span><span id="result-period"></span></div>
+          <div class="result-main">
+            <div><p id="result-metric-name" class="result-metric-name"></p><div id="result-value" class="result-value" hidden></div><p id="result-count" class="result-count"></p></div>
+            <p id="result-definition" class="result-definition"></p>
+          </div>
+          <dl class="result-provenance">
+            <div><dt>OWNER</dt><dd id="result-owner"></dd></div>
+            <div><dt>VERSION</dt><dd id="result-version"></dd></div>
+            <div><dt>REVIEWED</dt><dd id="result-reviewed"></dd></div>
+            <div><dt>CERTIFIED</dt><dd id="result-certified"></dd></div>
+            <div class="wide"><dt>SOURCE VIEW</dt><dd id="result-source"></dd></div>
+          </dl>
+          <div id="result-table-wrap" class="result-table-wrap" hidden>
+            <div class="table-scroll"><table id="result-table"><thead></thead><tbody></tbody></table></div>
+          </div>
+          <p id="coverage-note" class="coverage-note" hidden></p>
+          <details id="sql-details" class="sql-details">
+            <summary>Compiled SQL and bind values</summary>
+            <p>The end date is exclusive. Filter values are bound separately from SQL.</p>
+            <h3>SQL</h3><pre><code id="result-sql"></code></pre>
+            <h3>Bind values</h3><pre><code id="result-binds"></code></pre>
+          </details>
+        </article>
+      </section>
+    </main>
+
+    <footer class="footer"><span>Ask the Warehouse · Oracle AI Database</span><span>Certified view metrics · Bound queries · Audited answers</span></footer>
+  </div>
+</body>
+</html>

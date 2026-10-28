@@ -1,0 +1,13 @@
+{
+  "metric_id": "FILLED_REQUISITIONS",
+  "name": "Filled requisitions",
+  "owner": "Talent Acquisition",
+  "definition_text": "Count requisitions with a fill date. Attribute each filled requisition to its fill date, state, and job family. This count does not include open requisitions.",
+  "unit": "requisitions",
+  "source_view": "WH_EXAMPLE_FILLED_REQUISITIONS",
+  "date_column": "METRIC_DATE",
+  "value_column": null,
+  "aggregation": "COUNT",
+  "allowed_dims": ["STATE", "JOB_FAMILY"],
+  "allowed_filters": ["STATE", "JOB_FAMILY"]
+}

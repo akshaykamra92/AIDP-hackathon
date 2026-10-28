@@ -6,11 +6,11 @@ This Oracle AI Database 26ai schema holds synthetic workforce data and a governe
 
 Execute these files in order, using the worksheet's script/run-all action so every statement runs:
 
-1. [`sql/01_schema.sql`](../sql/01_schema.sql) — drops and recreates only the eight `WH_` tables, constraints, comments, and annotations. This also clears prior answer logs and metric requests.
-2. [`sql/02_seed.sql`](../sql/02_seed.sql) — loads deterministic synthetic rows and five certified catalog entries. It may be rerun without recreating the tables; it resets all `WH_` rows, including logs and requests.
+1. [`sql/01_schema.sql`](../sql/01_schema.sql) — drops and recreates only the eight demo `WH_` tables, constraints, comments, and annotations. This also clears prior demo answer logs and metric requests.
+2. [`sql/02_seed.sql`](../sql/02_seed.sql) — loads deterministic synthetic rows and five certified demo catalog entries. It may be rerun without recreating the tables; it resets those eight demo tables, including their logs and requests.
 3. [`sql/03_verify.sql`](../sql/03_verify.sql) — read-only row-count, date-coverage, annotation, comment, and demo-metric checks.
 
-The SQL files contain standard Oracle SQL statements and no SQLcl-specific commands. They do not create an AI provider credential or Select AI profile.
+These three demo SQL files contain standard Oracle SQL statements and no SQLcl-specific commands. They do not create an AI provider credential or Select AI profile.
 
 ## Data contract
 
@@ -24,6 +24,8 @@ The SQL files contain standard Oracle SQL statements and no SQLcl-specific comma
 | `WH_METRIC` | One approved metric/version | 5 | Definition, owner, allowlists, and compiler marker |
 | `WH_METRIC_REQUEST` | One certification request | 0 initially | Requests for new metrics |
 | `WH_ANSWER_LOG` | One answer provenance record | 0 initially | Metric version, compiled SQL, binds, result count |
+
+The portable registered catalog is installed separately with `python scripts/install_catalog.py --apply`. It adds `WH_REGISTERED_METRIC` for versioned meanings and source-view contracts, `WH_REGISTERED_ANSWER_LOG` for query provenance, and the `WH_METRIC_GOVERNANCE` package for draft, review, and certification transitions. This installer does not reset these eight synthetic tables or load source data. See the [adoption guide](ADOPTION.md) for the lifecycle and a sample manifest.
 
 The six locations are Orlando, Tampa, and Jacksonville in FL; Birmingham in AL; Dallas in TX; and Atlanta in GA. `JOB_FAMILY` is one of `NURSING`, `THERAPY`, `CLINICAL_SUPPORT`, or `OPERATIONS`.
 

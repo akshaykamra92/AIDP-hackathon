@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+from threading import Lock
 from datetime import date, datetime
 from typing import Any, Dict, List, Mapping, Optional, Sequence
 
@@ -17,6 +18,8 @@ class OracleRepository:
         self.user = user if user is not None else os.getenv("ORACLE_USER", "")
         self.password = password if password is not None else os.getenv("ORACLE_PASSWORD", "")
         self.dsn = dsn if dsn is not None else os.getenv("ORACLE_DSN", "")
+        self._pool = None
+        self._pool_lock = Lock()
 
     @property
     def configured(self) -> bool:
@@ -32,7 +35,28 @@ class OracleRepository:
         except ImportError as exc:
             raise DatabaseUnavailable("Install dependencies from requirements.txt to enable Oracle access.") from exc
         try:
-            return oracledb.connect(user=self.user, password=self.password, dsn=self.dsn)
+            with self._pool_lock:
+                if self._pool is None:
+                    try:
+                        pool_max = int(os.getenv("ORACLE_POOL_MAX", "4"))
+                    except ValueError as exc:
+                        raise DatabaseUnavailable("ORACLE_POOL_MAX must be an integer from 1 to 32.") from exc
+                    if not 1 <= pool_max <= 32:
+                        raise DatabaseUnavailable("ORACLE_POOL_MAX must be an integer from 1 to 32.")
+                    self._pool = oracledb.create_pool(
+                        user=self.user,
+                        password=self.password,
+                        dsn=self.dsn,
+                        min=1,
+                        max=pool_max,
+                        increment=1,
+                        getmode=oracledb.POOL_GETMODE_TIMEDWAIT,
+                        wait_timeout=5000,
+                        ping_interval=60,
+                    )
+            return self._pool.acquire()
+        except DatabaseUnavailable:
+            raise
         except Exception as exc:
             # Oracle driver errors may contain connection details; do not return them to callers.
             raise DatabaseUnavailable("Oracle connection is unavailable. Check the local environment configuration.") from exc

@@ -1,0 +1,14 @@
+services:
+  app:
+    build: .
+    image: ask-the-warehouse:local
+    ports:
+      - "${APP_PORT:-8000}:8000"
+    environment:
+      ORACLE_USER: ${ORACLE_USER:?Set ORACLE_USER in the shell or local .env}
+      ORACLE_PASSWORD: ${ORACLE_PASSWORD:?Set ORACLE_PASSWORD in the shell or local .env}
+      ORACLE_DSN: ${ORACLE_DSN:?Set ORACLE_DSN in the shell or local .env}
+      ORACLE_POOL_MAX: ${ORACLE_POOL_MAX:-4}
+      DEMO_AS_OF_DATE: ${DEMO_AS_OF_DATE:-}
+      APP_MODE: ${APP_MODE:-demo}
+    restart: unless-stopped

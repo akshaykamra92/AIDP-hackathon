@@ -1,0 +1,99 @@
+-- Portable governed catalog for an Oracle AI Database 26ai schema.
+-- Safe to rerun: CREATE TABLE IF NOT EXISTS preserves existing metric versions and audit rows.
+-- This migration never drops objects, resets seed data, or inserts a metric.
+
+CREATE TABLE IF NOT EXISTS WH_REGISTERED_METRIC (
+    METRIC_ID       VARCHAR2(64) NOT NULL,
+    VERSION         NUMBER(10) NOT NULL,
+    NAME            VARCHAR2(200) NOT NULL,
+    OWNER           VARCHAR2(200) NOT NULL,
+    DEFINITION_TEXT CLOB NOT NULL,
+    UNIT            VARCHAR2(40) NOT NULL,
+    SOURCE_VIEW     VARCHAR2(128) NOT NULL,
+    DATE_COLUMN     VARCHAR2(128) NOT NULL,
+    VALUE_COLUMN    VARCHAR2(128),
+    AGGREGATION     VARCHAR2(8) NOT NULL,
+    ALLOWED_DIMS    CLOB NOT NULL,
+    ALLOWED_FILTERS CLOB NOT NULL,
+    STATUS          VARCHAR2(12) DEFAULT 'DRAFT' NOT NULL,
+    CREATED_AT      TIMESTAMP(6) WITH TIME ZONE DEFAULT SYSTIMESTAMP NOT NULL,
+    REVIEWED_AT     TIMESTAMP(6) WITH TIME ZONE,
+    REVIEWED_BY     VARCHAR2(120),
+    REVIEW_NOTE     CLOB,
+    CERTIFIED_AT    TIMESTAMP(6) WITH TIME ZONE,
+    CERTIFIED_BY    VARCHAR2(120),
+    SOURCE_DDL_AT   DATE,
+    CONSTRAINT WH_RM_PK PRIMARY KEY (METRIC_ID, VERSION),
+    CONSTRAINT WH_RM_VERSION_CK CHECK (VERSION >= 1),
+    CONSTRAINT WH_RM_AGG_CK CHECK (AGGREGATION IN ('COUNT', 'SUM', 'AVG')),
+    CONSTRAINT WH_RM_STATUS_CK CHECK (STATUS IN ('DRAFT', 'REVIEWED', 'CERTIFIED', 'RETIRED')),
+    CONSTRAINT WH_RM_VALUE_CK CHECK (
+        (AGGREGATION = 'COUNT' AND VALUE_COLUMN IS NULL)
+        OR (AGGREGATION IN ('SUM', 'AVG') AND VALUE_COLUMN IS NOT NULL)
+    ),
+    CONSTRAINT WH_RM_DIMS_JSON_CK CHECK (ALLOWED_DIMS IS JSON),
+    CONSTRAINT WH_RM_FILTERS_JSON_CK CHECK (ALLOWED_FILTERS IS JSON),
+    CONSTRAINT WH_RM_REVIEWED_CK CHECK (
+        STATUS NOT IN ('REVIEWED', 'CERTIFIED')
+        OR (REVIEWED_AT IS NOT NULL AND REVIEWED_BY IS NOT NULL AND SOURCE_DDL_AT IS NOT NULL)
+    ),
+    CONSTRAINT WH_RM_CERTIFIED_CK CHECK (
+        STATUS <> 'CERTIFIED'
+        OR (CERTIFIED_AT IS NOT NULL AND CERTIFIED_BY IS NOT NULL AND SOURCE_DDL_AT IS NOT NULL)
+    )
+);
+
+CREATE TABLE IF NOT EXISTS WH_REGISTERED_ANSWER_LOG (
+    ID             NUMBER GENERATED ALWAYS AS IDENTITY,
+    ASKED_AT       TIMESTAMP(6) WITH TIME ZONE DEFAULT SYSTIMESTAMP NOT NULL,
+    METRIC_ID      VARCHAR2(64) NOT NULL,
+    METRIC_VERSION NUMBER(10) NOT NULL,
+    QUERY_JSON     CLOB NOT NULL,
+    COMPILED_SQL   CLOB NOT NULL,
+    BIND_JSON      CLOB NOT NULL,
+    ROW_COUNT      NUMBER(10) NOT NULL,
+    CONSTRAINT WH_RAL_PK PRIMARY KEY (ID),
+    CONSTRAINT WH_RAL_METRIC_FK FOREIGN KEY (METRIC_ID, METRIC_VERSION)
+        REFERENCES WH_REGISTERED_METRIC (METRIC_ID, VERSION),
+    CONSTRAINT WH_RAL_QUERY_JSON_CK CHECK (QUERY_JSON IS JSON),
+    CONSTRAINT WH_RAL_BIND_JSON_CK CHECK (BIND_JSON IS JSON),
+    CONSTRAINT WH_RAL_ROW_COUNT_CK CHECK (ROW_COUNT >= 0)
+);
+
+-- Oracle unique indexes omit all-null keys. This permits many draft/reviewed/
+-- retired versions but only one certified version per METRIC_ID, even when
+-- certification requests race in separate sessions.
+CREATE UNIQUE INDEX IF NOT EXISTS WH_RM_ONE_CERTIFIED_UX
+ON WH_REGISTERED_METRIC (CASE WHEN STATUS = 'CERTIFIED' THEN METRIC_ID END);
+
+COMMENT ON TABLE WH_REGISTERED_METRIC IS 'Versioned metric definitions for organization-owned source views. Only reviewed, certified versions can answer questions.';
+COMMENT ON COLUMN WH_REGISTERED_METRIC.METRIC_ID IS 'Stable portable metric identifier.';
+COMMENT ON COLUMN WH_REGISTERED_METRIC.VERSION IS 'Immutable metric-definition version, starting at one.';
+COMMENT ON COLUMN WH_REGISTERED_METRIC.NAME IS 'Human-readable metric name.';
+COMMENT ON COLUMN WH_REGISTERED_METRIC.OWNER IS 'Team accountable for this definition and source view.';
+COMMENT ON COLUMN WH_REGISTERED_METRIC.DEFINITION_TEXT IS 'Business meaning, exclusions, and interpretation approved by the owner.';
+COMMENT ON COLUMN WH_REGISTERED_METRIC.UNIT IS 'Display unit, such as requisitions, dollars, or days.';
+COMMENT ON COLUMN WH_REGISTERED_METRIC.SOURCE_VIEW IS 'Same-schema approved source view; application validates the object before certification and execution.';
+COMMENT ON COLUMN WH_REGISTERED_METRIC.DATE_COLUMN IS 'Date or timestamp column used for half-open period bounds.';
+COMMENT ON COLUMN WH_REGISTERED_METRIC.VALUE_COLUMN IS 'Numeric column required by SUM and AVG; null for COUNT.';
+COMMENT ON COLUMN WH_REGISTERED_METRIC.AGGREGATION IS 'Reviewed aggregate operator: COUNT, SUM, or AVG.';
+COMMENT ON COLUMN WH_REGISTERED_METRIC.ALLOWED_DIMS IS 'JSON array of approved grouping column names.';
+COMMENT ON COLUMN WH_REGISTERED_METRIC.ALLOWED_FILTERS IS 'JSON array of approved filter column names.';
+COMMENT ON COLUMN WH_REGISTERED_METRIC.STATUS IS 'DRAFT, REVIEWED, CERTIFIED, or RETIRED.';
+COMMENT ON COLUMN WH_REGISTERED_METRIC.CREATED_AT IS 'Timestamp when this immutable version was registered.';
+COMMENT ON COLUMN WH_REGISTERED_METRIC.REVIEWED_AT IS 'Timestamp when the metric and owned view passed review.';
+COMMENT ON COLUMN WH_REGISTERED_METRIC.REVIEWED_BY IS 'Identity of the reviewer.';
+COMMENT ON COLUMN WH_REGISTERED_METRIC.REVIEW_NOTE IS 'Human review explanation for the proposed business meaning.';
+COMMENT ON COLUMN WH_REGISTERED_METRIC.CERTIFIED_AT IS 'Timestamp of owner certification.';
+COMMENT ON COLUMN WH_REGISTERED_METRIC.CERTIFIED_BY IS 'Identity of the certifier, supplied by the trusted registration flow.';
+COMMENT ON COLUMN WH_REGISTERED_METRIC.SOURCE_DDL_AT IS 'USER_OBJECTS.LAST_DDL_TIME snapshot for the approved view at review; certification checks it again.';
+
+COMMENT ON TABLE WH_REGISTERED_ANSWER_LOG IS 'Provenance of every answer from a registered metric version.';
+COMMENT ON COLUMN WH_REGISTERED_ANSWER_LOG.ID IS 'Generated immutable audit row identifier.';
+COMMENT ON COLUMN WH_REGISTERED_ANSWER_LOG.ASKED_AT IS 'Time the registered metric was queried.';
+COMMENT ON COLUMN WH_REGISTERED_ANSWER_LOG.METRIC_ID IS 'Registered metric used for this answer.';
+COMMENT ON COLUMN WH_REGISTERED_ANSWER_LOG.METRIC_VERSION IS 'Exact certified definition version used for this answer.';
+COMMENT ON COLUMN WH_REGISTERED_ANSWER_LOG.QUERY_JSON IS 'Canonical approved question parameters as JSON.';
+COMMENT ON COLUMN WH_REGISTERED_ANSWER_LOG.COMPILED_SQL IS 'Fixed compiled read-only SQL executed for the answer.';
+COMMENT ON COLUMN WH_REGISTERED_ANSWER_LOG.BIND_JSON IS 'JSON rendering of bind values used by COMPILED_SQL.';
+COMMENT ON COLUMN WH_REGISTERED_ANSWER_LOG.ROW_COUNT IS 'Number of result rows returned.';

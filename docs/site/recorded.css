@@ -173,6 +173,7 @@ a { color: inherit; }
 .build-section { display: flex; align-items: center; justify-content: space-between; gap: 35px; margin-bottom: 47px; padding: 30px 33px; border: 1px solid #dbe8dd; border-radius: 16px; background: #edf5ef; }
 .build-section > div { max-width: 700px; }
 .build-section p:last-child { margin: 10px 0 0; color: #5c7363; font-size: 12px; line-height: 1.7; }
+.build-section p a { color: var(--teal-dark); font-weight: 800; }
 .build-section > a { flex: 0 0 auto; padding: 12px 14px; border: 1px solid #a3cbb5; border-radius: 8px; background: #fff; color: var(--teal-dark); font-size: 11px; font-weight: 850; text-decoration: none; }
 .build-section > a:hover { background: #f6fffa; }
 .build-section > a span { margin-left: 6px; }

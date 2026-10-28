@@ -9,3 +9,6 @@ This repository is a hackathon prototype called **Ask the Warehouse**. Keep it p
 - Keep credentials in the local environment only. Do not print, log, commit, or place them in documentation.
 - Use half-open date ranges `[start_date, end_date)` in metric queries. Treat the latest completed month or quarter as the default when applicable.
 - Run the local tests before committing. Verify the public GitHub diff contains no secrets or real data.
+- Portable metrics use an owned `WH_` adapter view and a typed manifest. Do not accept SQL text from a manifest or a question; only the fixed registered metric compiler may build a query.
+- Create, review, and certify portable metric versions through `WH_METRIC_GOVERNANCE`. The web app can query certified versions but must not expose a catalog publish route.
+- `scripts/deploy.py --apply` resets the synthetic demo schema. Use the non-destructive catalog installer for another organization's database.

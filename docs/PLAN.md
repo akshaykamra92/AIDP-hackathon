@@ -21,4 +21,4 @@ A user asks a natural-language metric question and receives either a certified r
 
 ## Portability boundary
 
-The metric catalog, SQL compiler, and UI are reusable. An adopter replaces the synthetic source tables and metric definitions with its own governed warehouse objects and authorization model.
+The original five-metric natural-language walkthrough remains tied to synthetic workforce data. The portable path lets an adopter expose its own data through a reviewed, same-schema `WH_` view and save versioned `COUNT`, `SUM`, or `AVG` metric meanings in Oracle. It uses a structured certified metric explorer, approved identifiers, and bound values. See [`docs/ADOPTION.md`](ADOPTION.md) for installation, review, certification, and current access-control limits.

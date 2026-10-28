@@ -1,6 +1,7 @@
 """API wiring smoke checks; skipped when FastAPI is not installed."""
 
 import importlib.util
+import asyncio
 import unittest
 
 
@@ -49,6 +50,35 @@ class ApiContractTests(unittest.TestCase):
             self._endpoint("/demo/turnover-comparison", "GET")()["certified"]["value"],
         )
         self.assertTrue(any(getattr(route, "path", None) == "/static" for route in self.app.routes))
+
+    def test_portable_mode_hides_demo_routes_and_assets(self):
+        from fastapi import HTTPException
+        from app.main import create_app
+
+        class Registry:
+            def catalog_ready(self):
+                return True
+
+            def list_certified(self):
+                return []
+
+        app = create_app(registered_repository=Registry(), app_mode="portable")
+        routes = {
+            (route.path, method): route.endpoint
+            for route in app.routes
+            for method in (getattr(route, "methods", set()) or set())
+        }
+        self.assertEqual("catalog.html", routes[("/", "GET")]().path.rsplit("/", 1)[-1])
+        self.assertEqual({"status": "ok", "database": "connected", "catalog": "ready"}, routes[("/health", "GET")]())
+        self.assertEqual({"metrics": []}, routes[("/metrics", "GET")]())
+        self.assertNotIn(("/demo/turnover-comparison", "GET"), routes)
+        self.assertNotIn(("/ask", "POST"), routes)
+        self.assertNotIn(("/certification-request", "POST"), routes)
+
+        static = next(route.app for route in app.routes if getattr(route, "path", None) == "/static")
+        with self.assertRaises(HTTPException) as rejected:
+            asyncio.run(static.get_response("index.html", {"type": "http"}))
+        self.assertEqual(404, rejected.exception.status_code)
 
 
 if __name__ == "__main__":
