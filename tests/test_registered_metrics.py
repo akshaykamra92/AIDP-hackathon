@@ -69,7 +69,8 @@ class RegisteredMetricTests(unittest.TestCase):
         self.assertEqual(
             "SELECT src.REGION, COUNT(*) AS value FROM WH_ORDER_METRIC_SOURCE src "
             "WHERE src.FILLED_DATE >= :start_date AND src.FILLED_DATE < :end_date "
-            "AND src.REGION = :f0 GROUP BY src.REGION HAVING COUNT(*) > 0 ORDER BY src.REGION",
+            "AND src.REGION = :f0 GROUP BY src.REGION HAVING COUNT(*) > 0 "
+            "ORDER BY src.REGION FETCH FIRST 501 ROWS ONLY",
             query.sql,
         )
         self.assertNotIn(hostile, query.sql)
@@ -87,9 +88,37 @@ class RegisteredMetricTests(unittest.TestCase):
                     metric, date(2026, 1, 1), date(2026, 2, 1), (), {}
                 )
                 self.assertIn(f"{aggregation}(src.AMOUNT) AS value", query.sql)
-                self.assertIn("HAVING COUNT(src.AMOUNT) > 0", query.sql)
+                self.assertNotIn(" HAVING ", query.sql)
+                self.assertIn("FETCH FIRST 501 ROWS ONLY", query.sql)
                 self.assertEqual(("value",), query.columns)
                 self.assertNotIn("GROUP BY", query.sql)
+
+    def test_ratio_sum_uses_bound_filters_and_scoped_additive_components(self):
+        metric = registered(
+            aggregation="RATIO_SUM", numerator_column="ON_TIME_NUM",
+            denominator_column="ELIGIBLE_DEN", unit="fraction",
+        )
+        query = compile_registered(
+            metric, date(2026, 7, 1), date(2026, 10, 1),
+            ["REGION"], {"CHANNEL": "DIRECT", "REGION": "FL"},
+            scope_user_id="reader-1",
+        )
+        self.assertIn(
+            "CASE WHEN COUNT(src.ON_TIME_NUM) = COUNT(*) "
+            "AND COUNT(src.ELIGIBLE_DEN) = COUNT(*) AND SUM(src.ELIGIBLE_DEN) > 0 "
+            "THEN SUM(src.ON_TIME_NUM) / NULLIF(SUM(src.ELIGIBLE_DEN), 0) "
+            "ELSE CAST(NULL AS NUMBER) END AS value",
+            query.sql,
+        )
+        self.assertIn("acl.LOCATION_KEY = src.LOCATION_KEY", query.sql)
+        self.assertIn("src.CHANNEL = :f0 AND src.REGION = :f1", query.sql)
+        self.assertNotIn(" HAVING ", query.sql)
+        self.assertEqual(query.binds["f0"], "DIRECT")
+        self.assertEqual(query.binds["f1"], "FL")
+        self.assertEqual(query.binds["auth_user_id"], "reader-1")
+        self.assertEqual(metric.public_dict()["numerator_column"], "ON_TIME_NUM")
+        self.assertEqual(metric.public_dict()["denominator_column"], "ELIGIBLE_DEN")
+        self.assertEqual(query.columns, ("region", "value"))
 
     def test_drafts_cannot_answer_but_can_compile_for_review(self):
         metric = RegisteredMetric.from_manifest(manifest(), 1)
@@ -135,6 +164,12 @@ class RegisteredMetricTests(unittest.TestCase):
             (manifest(aggregation="MAX"), "INVALID_AGGREGATION"),
             (manifest(aggregation="SUM"), "INVALID_VALUE_COLUMN"),
             (manifest(value_column="AMOUNT"), "INVALID_VALUE_COLUMN"),
+            (manifest(numerator_column="ON_TIME_NUM"), "INVALID_VALUE_COLUMN"),
+            (manifest(aggregation="SUM", value_column="AMOUNT", denominator_column="ELIGIBLE_DEN"), "INVALID_VALUE_COLUMN"),
+            (manifest(aggregation="RATIO_SUM"), "INVALID_RATIO_COLUMNS"),
+            (manifest(aggregation="RATIO_SUM", numerator_column="ON_TIME_NUM"), "INVALID_RATIO_COLUMNS"),
+            (manifest(aggregation="RATIO_SUM", value_column="AMOUNT", numerator_column="ON_TIME_NUM", denominator_column="ELIGIBLE_DEN"), "INVALID_RATIO_COLUMNS"),
+            (manifest(aggregation="RATIO_SUM", numerator_column="ON_TIME_NUM; DROP TABLE WH_METRIC", denominator_column="ELIGIBLE_DEN"), "INVALID_IDENTIFIER"),
         )
         for item, code in cases:
             with self.subTest(code=code, item=item), self.assertRaises(CompileError) as caught:

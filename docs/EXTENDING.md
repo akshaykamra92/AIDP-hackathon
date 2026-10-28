@@ -12,7 +12,7 @@ Before writing a view, record these decisions for each proposed metric:
 | Reporting date | Which event or snapshot date controls the half-open interval `[start_date, end_date)`? |
 | Location | Which **single** location owned this fact at that event time? What stable uppercase text key represents it? |
 | Eligibility | Which statuses, reversals, test rows, and nulls are excluded? |
-| Value | For `SUM` or `AVG`, what numeric field and unit are approved? |
+| Value | For `SUM` or `AVG`, what numeric field and unit are approved? For `RATIO_SUM`, what are the additive numerator and denominator components, and what happens when either is missing? |
 | Dimensions | Which text or numeric columns may users group or filter by? |
 | Owner | Who verifies the meaning, the source mapping, and the release of a new version? |
 
@@ -59,9 +59,11 @@ Create a JSON manifest containing identifiers and business meaning, with **no SQ
 }
 ```
 
-Use `COUNT` with no `value_column` for a row count, or `AVG` with a numeric `value_column` for a row-level average. Add only fields that are safe for users to filter or group. The `location_column` is mandatory even when users will not select it as a filter; the query compiler injects the location access predicate independently.
+Use `COUNT` with no `value_column` for a row count, or `AVG` with a numeric `value_column` for a row-level average. For a ratio of additive components, use `RATIO_SUM` with numeric `numerator_column` and `denominator_column` and no `value_column`. The fixed compiler calculates `SUM(numerator) / SUM(denominator)` as a fraction **only when the denominator sum is positive** and all contributing components are non-null. A nonpositive or missing denominator or any null component makes the entire requested grouped answer unavailable; no group is silently omitted. An all-null `SUM` or `AVG` group also refuses the entire answer. The [synthetic on-time fulfillment example](../examples/on_time_fulfillment.md) joins four tables, reduces order lines to one fact per order, and attributes each fact to its site at fulfillment.
 
-Run `scripts/metricctl.py draft`, inspect the saved version with `show`, preview it under the drafting administrator's own location grants, review it with that administrator's token, and certify it with a **different active administrator**. Exact commands are in [ADOPTION.md](ADOPTION.md#4-draft-review-and-certify). The metric's meaning, owner, source contract, and review records are saved in Oracle, not merely in the JSON file. The source rows stay in the source database objects.
+Add only fields that are safe for users to filter or group. The `location_column` is mandatory even when users will not select it as a filter; the query compiler injects the location access predicate independently. Current queries can combine several approved scalar equality filters with `AND`. Multi-value sets, ranges, and optional/required parameter contracts are [planned extensions](QUESTION_ENGINE.md), not accepted by the current manifest or API.
+
+Run `scripts/metricctl.py draft`, inspect the saved version with `show`, preview it under the drafting administrator's own location grants, review it with that administrator's token, and certify it with a **different active administrator**. Exact commands are in [ADOPTION.md](ADOPTION.md#4-draft-review-and-certify). The CLI authenticates each admin token; `WH_METRIC_GOVERNANCE` checks the supplied actor IDs and their separation but does not authenticate tokens itself. The shared schema owner can call the package directly, so this is a prototype workflow rather than database-enforced separation of duties. The metric's meaning, owner, source contract, and review records are saved in Oracle, not merely in the JSON file. The source rows stay in the source database objects.
 
 ## 4. Test the mapping and location boundary
 
@@ -73,22 +75,23 @@ Use synthetic fixtures or a controlled non-sensitive test environment to check:
 4. A user with no grant, a revoked grant, a revoked user, or an inactive location cannot receive an unscoped number.
 5. The same metric with the same period and filters yields the same SQL shape and uses binds for every value.
 6. The answer log stores the metric version, user, SQL, binds, and result count without a bearer token.
+7. Grouping never returns more than 500 rows; a 501st row causes the whole answer to be refused, and one invalid null aggregate group refuses the whole answer.
 
 The [synthetic requisition adapter and manifest](../examples/filled_requisitions.json) give a runnable example. In the FreeSQL exercise, grants for Florida sites `1` and `2` produced 13 Q3 2026 filled requisitions; an Alabama-only grant for site `4` produced 5. The whole Florida synthetic set has 20. Those are checks of the seed and grants, not values to assume for another organization.
 
 ## 5. Add more metrics and calculation types
 
-One view can support multiple manifests. For example, `COUNT` of filled rows, `SUM` of `NET_AMOUNT`, and `AVG` of `NET_AMOUNT` are three separately reviewed meanings with potentially different units or exclusions. `COUNT` counts source rows, not distinct IDs; `AVG` averages source values, not already-aggregated averages. Keep each metric's business definition explicit.
+One view can support multiple manifests. For example, `COUNT` of filled rows, `SUM` of `NET_AMOUNT`, and `AVG` of `NET_AMOUNT` are three separately reviewed meanings with potentially different units or exclusions. `COUNT` counts source rows, not distinct IDs; `AVG` averages source values, not already-aggregated averages. `RATIO_SUM` computes a ratio of sums, not an average of row ratios. Keep each metric's business definition and output unit explicit; `RATIO_SUM` does not multiply by 100 to display a percentage.
 
-A ratio, rate, median, distinct count, or weighted average is **not** a manifest-only option in the current compiler. To add one:
+For a calculation that does not fit the reviewed `COUNT`, `SUM`, `AVG`, or `RATIO_SUM` shapes—such as a median, distinct count, weighted average, or a ratio with a non-additive denominator—do not place a formula in the manifest. Add a new fixed kind through these steps:
 
-1. Write the business formula, numerator/denominator grain, null and zero-denominator behavior, date attribution, and location rule with its owner.
+1. Write the business formula, numerator/denominator grain, null and denominator-validity behavior, date attribution, and location rule with its owner.
 2. Add a named aggregation kind and fixed SQL shape in `app/registered_metrics.py`; extend type and view validation in `app/registered_repo.py`.
 3. Add a reviewed, non-destructive catalog constraint migration and update `WH_METRIC_GOVERNANCE` to validate that kind. Existing installations need the migration; editing the create-table file alone does not change an existing constraint.
 4. Add synthetic tests for totals, edge cases, half-open periods, unsupported fields, SQL injection attempts, and two users with disjoint location grants. Do not allow model- or user-supplied SQL into the certified compiler.
 5. Create a **new** metric version, preview it, have one administrator review and another certify it. Certification retires the prior version; if its source view changed earlier, that prior version stops answering immediately.
 
-Changing an adapter view's definition changes its reviewed DDL fingerprint, even when Oracle's second-resolution DDL timestamp does not change. The app rejects that metric until a new version has passed review and certification, even if its manifest fields are unchanged. This makes source changes an explicit release step.
+Changing a registered adapter view's definition changes its reviewed DDL fingerprint, even when Oracle's second-resolution DDL timestamp does not change. The app rejects that metric until a new version has passed review and certification, even if its manifest fields are unchanged. The implemented fingerprint does **not** traverse nested views. Inventory the full dependency closure of each adapter; review a nested-view definition change as a metric release and advance the adapter's `WH_CACHE_SOURCE` revision when any nested view's underlying rows change. For immediate cache invalidation, the source revision must advance in the **same transaction** as the source change, before commit. A later `cachectl.py bump-source` call leaves a stale window; if ingestion cannot keep this contract, the cache TTL only bounds staleness. See [QUESTION_ENGINE.md](QUESTION_ENGINE.md#result-reuse-with-a-30-minute-policy).
 
 ## 6. Decide whether to enable Select AI
 

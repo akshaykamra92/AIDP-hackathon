@@ -21,6 +21,7 @@ class FakeDatabase:
         self.last_answer_sql = None
         self.last_answer_binds = None
         self.last_client_identifier = None
+        self.answer_rows = [{"value": 7}]
 
     def run_readonly(self, sql, binds, *, client_identifier=None):
         if "FROM USER_TABLES" in sql:
@@ -64,7 +65,7 @@ class FakeDatabase:
             self.last_answer_sql = sql
             self.last_answer_binds = binds
             self.last_client_identifier = client_identifier
-            return [{"value": 7}]
+            return self.answer_rows
         raise AssertionError(f"Unexpected query: {sql}")
 
 
@@ -136,6 +137,19 @@ class RegisteredRepositoryTests(unittest.TestCase):
         with self.assertRaises(CatalogError) as raised:
             self.repo.query("FILLED_REQUISITIONS", date(2026, 7, 1), date(2026, 10, 1), user_id="reader-1")
         self.assertEqual(raised.exception.code, "INVALID_LOCATION_COLUMN")
+
+    def test_oversize_grouped_answer_is_refused_without_audit(self):
+        self.database.answer_rows = [
+            {"state": f"S{i}", "value": 1} for i in range(501)
+        ]
+        with self.assertRaises(CatalogError) as raised:
+            self.repo.query(
+                "FILLED_REQUISITIONS", date(2026, 7, 1), date(2026, 10, 1),
+                dimensions=["STATE"], user_id="reader-1",
+            )
+        self.assertEqual(raised.exception.code, "RESULT_TOO_LARGE")
+        self.assertIn("FETCH FIRST 501 ROWS ONLY", self.database.last_answer_sql)
+        self.assertEqual(self.logged, [])
 
 
 if __name__ == "__main__":

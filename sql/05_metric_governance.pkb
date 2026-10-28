@@ -102,6 +102,8 @@ CREATE OR REPLACE PACKAGE BODY WH_METRIC_GOVERNANCE AS
         p_date_column IN VARCHAR2,
         p_location_column IN VARCHAR2,
         p_value_column IN VARCHAR2,
+        p_numerator_column IN VARCHAR2,
+        p_denominator_column IN VARCHAR2,
         p_aggregation IN VARCHAR2
     ) IS
         v_data_type VARCHAR2(128);
@@ -132,6 +134,22 @@ CREATE OR REPLACE PACKAGE BODY WH_METRIC_GOVERNANCE AS
                 RAISE_APPLICATION_ERROR(-20005, 'Value column must be numeric.');
             END IF;
         END IF;
+        IF p_aggregation = 'RATIO_SUM' THEN
+            SELECT DATA_TYPE INTO v_data_type
+            FROM USER_TAB_COLUMNS
+            WHERE TABLE_NAME = p_source_view
+              AND COLUMN_NAME = p_numerator_column;
+            IF v_data_type NOT IN ('NUMBER', 'FLOAT', 'BINARY_FLOAT', 'BINARY_DOUBLE') THEN
+                RAISE_APPLICATION_ERROR(-20005, 'Numerator column must be numeric.');
+            END IF;
+            SELECT DATA_TYPE INTO v_data_type
+            FROM USER_TAB_COLUMNS
+            WHERE TABLE_NAME = p_source_view
+              AND COLUMN_NAME = p_denominator_column;
+            IF v_data_type NOT IN ('NUMBER', 'FLOAT', 'BINARY_FLOAT', 'BINARY_DOUBLE') THEN
+                RAISE_APPLICATION_ERROR(-20005, 'Denominator column must be numeric.');
+            END IF;
+        END IF;
     EXCEPTION
         WHEN NO_DATA_FOUND THEN
             RAISE_APPLICATION_ERROR(-20005, 'Required source-view column is missing.');
@@ -147,6 +165,8 @@ CREATE OR REPLACE PACKAGE BODY WH_METRIC_GOVERNANCE AS
         p_date_column     IN VARCHAR2,
         p_location_column IN VARCHAR2,
         p_value_column    IN VARCHAR2,
+        p_numerator_column IN VARCHAR2,
+        p_denominator_column IN VARCHAR2,
         p_aggregation     IN VARCHAR2,
         p_allowed_dims    IN CLOB,
         p_allowed_filters IN CLOB,
@@ -157,6 +177,8 @@ CREATE OR REPLACE PACKAGE BODY WH_METRIC_GOVERNANCE AS
         v_date_column VARCHAR2(128);
         v_location_column VARCHAR2(128);
         v_value_column VARCHAR2(128);
+        v_numerator_column VARCHAR2(128);
+        v_denominator_column VARCHAR2(128);
         v_aggregation VARCHAR2(128);
     BEGIN
         v_metric_id := NORMAL_NAME(p_metric_id);
@@ -167,17 +189,25 @@ CREATE OR REPLACE PACKAGE BODY WH_METRIC_GOVERNANCE AS
         v_date_column := NORMAL_NAME(p_date_column);
         v_location_column := NORMAL_NAME(p_location_column);
         v_aggregation := UPPER(TRIM(p_aggregation));
-        IF v_aggregation NOT IN ('COUNT', 'SUM', 'AVG') OR v_aggregation IS NULL THEN
+        IF v_aggregation NOT IN ('COUNT', 'SUM', 'AVG', 'RATIO_SUM') OR v_aggregation IS NULL THEN
             RAISE_APPLICATION_ERROR(-20001, 'Unsupported aggregate.');
         END IF;
-        IF v_aggregation IN ('SUM', 'AVG') AND p_value_column IS NULL THEN
-            RAISE_APPLICATION_ERROR(-20001, 'Numeric value column is required.');
-        END IF;
-        IF v_aggregation = 'COUNT' AND p_value_column IS NOT NULL THEN
-            RAISE_APPLICATION_ERROR(-20001, 'COUNT does not use a value column.');
+        IF (v_aggregation = 'COUNT' AND
+                (p_value_column IS NOT NULL OR p_numerator_column IS NOT NULL OR p_denominator_column IS NOT NULL))
+           OR (v_aggregation IN ('SUM', 'AVG') AND
+                (p_value_column IS NULL OR p_numerator_column IS NOT NULL OR p_denominator_column IS NOT NULL))
+           OR (v_aggregation = 'RATIO_SUM' AND
+                (p_value_column IS NOT NULL OR p_numerator_column IS NULL OR p_denominator_column IS NULL)) THEN
+            RAISE_APPLICATION_ERROR(-20001, 'Aggregate columns do not match the approved calculation kind.');
         END IF;
         IF p_value_column IS NOT NULL THEN
             v_value_column := NORMAL_NAME(p_value_column);
+        END IF;
+        IF p_numerator_column IS NOT NULL THEN
+            v_numerator_column := NORMAL_NAME(p_numerator_column);
+        END IF;
+        IF p_denominator_column IS NOT NULL THEN
+            v_denominator_column := NORMAL_NAME(p_denominator_column);
         END IF;
         IF TRIM(p_name) IS NULL OR TRIM(p_owner) IS NULL OR TRIM(p_unit) IS NULL
            OR NVL(DBMS_LOB.GETLENGTH(p_definition_text), 0) NOT BETWEEN 1 AND 16000
@@ -193,11 +223,13 @@ CREATE OR REPLACE PACKAGE BODY WH_METRIC_GOVERNANCE AS
 
         INSERT INTO WH_REGISTERED_METRIC (
             METRIC_ID, VERSION, NAME, OWNER, DEFINITION_TEXT, UNIT,
-            SOURCE_VIEW, DATE_COLUMN, LOCATION_COLUMN, VALUE_COLUMN, AGGREGATION,
+            SOURCE_VIEW, DATE_COLUMN, LOCATION_COLUMN, VALUE_COLUMN,
+            NUMERATOR_COLUMN, DENOMINATOR_COLUMN, AGGREGATION,
             ALLOWED_DIMS, ALLOWED_FILTERS, STATUS
         ) VALUES (
             v_metric_id, p_version, TRIM(p_name), TRIM(p_owner), p_definition_text, TRIM(p_unit),
-            v_source_view, v_date_column, v_location_column, v_value_column, v_aggregation,
+            v_source_view, v_date_column, v_location_column, v_value_column,
+            v_numerator_column, v_denominator_column, v_aggregation,
             p_allowed_dims, p_allowed_filters, 'DRAFT'
         );
     EXCEPTION
@@ -243,6 +275,8 @@ CREATE OR REPLACE PACKAGE BODY WH_METRIC_GOVERNANCE AS
             v_metric.DATE_COLUMN,
             v_metric.LOCATION_COLUMN,
             v_metric.VALUE_COLUMN,
+            v_metric.NUMERATOR_COLUMN,
+            v_metric.DENOMINATOR_COLUMN,
             v_metric.AGGREGATION
         );
         CHECK_ALLOWLIST(v_metric.ALLOWED_DIMS, v_metric.SOURCE_VIEW);
@@ -300,6 +334,17 @@ CREATE OR REPLACE PACKAGE BODY WH_METRIC_GOVERNANCE AS
            OR v_metric.SOURCE_DDL_SHA256 <> LOWER(TRIM(p_source_ddl_sha256)) THEN
             RAISE_APPLICATION_ERROR(-20008, 'Source view digest is missing or changed after review.');
         END IF;
+        CHECK_SOURCE_COLUMNS(
+            v_metric.SOURCE_VIEW,
+            v_metric.DATE_COLUMN,
+            v_metric.LOCATION_COLUMN,
+            v_metric.VALUE_COLUMN,
+            v_metric.NUMERATOR_COLUMN,
+            v_metric.DENOMINATOR_COLUMN,
+            v_metric.AGGREGATION
+        );
+        CHECK_ALLOWLIST(v_metric.ALLOWED_DIMS, v_metric.SOURCE_VIEW);
+        CHECK_ALLOWLIST(v_metric.ALLOWED_FILTERS, v_metric.SOURCE_VIEW);
 
         UPDATE WH_REGISTERED_METRIC
         SET STATUS = 'RETIRED'

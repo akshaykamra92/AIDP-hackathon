@@ -1,6 +1,7 @@
 -- Portable governed catalog for an Oracle AI Database 26ai schema.
 -- Safe to rerun: CREATE TABLE IF NOT EXISTS preserves existing metric versions and audit rows.
--- This migration never drops objects, resets seed data, or inserts a metric.
+-- The installer replaces legacy calculation checks but never drops tables,
+-- resets seed data, changes metric rows, or inserts a metric.
 
 CREATE TABLE IF NOT EXISTS WH_REGISTERED_METRIC (
     METRIC_ID       VARCHAR2(64) NOT NULL,
@@ -13,7 +14,9 @@ CREATE TABLE IF NOT EXISTS WH_REGISTERED_METRIC (
     DATE_COLUMN     VARCHAR2(128) NOT NULL,
     LOCATION_COLUMN VARCHAR2(128) NOT NULL,
     VALUE_COLUMN    VARCHAR2(128),
-    AGGREGATION     VARCHAR2(8) NOT NULL,
+    NUMERATOR_COLUMN VARCHAR2(128),
+    DENOMINATOR_COLUMN VARCHAR2(128),
+    AGGREGATION     VARCHAR2(16) NOT NULL,
     ALLOWED_DIMS    CLOB NOT NULL,
     ALLOWED_FILTERS CLOB NOT NULL,
     STATUS          VARCHAR2(12) DEFAULT 'DRAFT' NOT NULL,
@@ -27,11 +30,14 @@ CREATE TABLE IF NOT EXISTS WH_REGISTERED_METRIC (
     SOURCE_DDL_SHA256 VARCHAR2(64),
     CONSTRAINT WH_RM_PK PRIMARY KEY (METRIC_ID, VERSION),
     CONSTRAINT WH_RM_VERSION_CK CHECK (VERSION >= 1),
-    CONSTRAINT WH_RM_AGG_CK CHECK (AGGREGATION IN ('COUNT', 'SUM', 'AVG')),
     CONSTRAINT WH_RM_STATUS_CK CHECK (STATUS IN ('DRAFT', 'REVIEWED', 'CERTIFIED', 'RETIRED')),
-    CONSTRAINT WH_RM_VALUE_CK CHECK (
-        (AGGREGATION = 'COUNT' AND VALUE_COLUMN IS NULL)
-        OR (AGGREGATION IN ('SUM', 'AVG') AND VALUE_COLUMN IS NOT NULL)
+    CONSTRAINT WH_RM_CALC_CK CHECK (
+        (AGGREGATION = 'COUNT' AND VALUE_COLUMN IS NULL
+            AND NUMERATOR_COLUMN IS NULL AND DENOMINATOR_COLUMN IS NULL)
+        OR (AGGREGATION IN ('SUM', 'AVG') AND VALUE_COLUMN IS NOT NULL
+            AND NUMERATOR_COLUMN IS NULL AND DENOMINATOR_COLUMN IS NULL)
+        OR (AGGREGATION = 'RATIO_SUM' AND VALUE_COLUMN IS NULL
+            AND NUMERATOR_COLUMN IS NOT NULL AND DENOMINATOR_COLUMN IS NOT NULL)
     ),
     CONSTRAINT WH_RM_DIMS_JSON_CK CHECK (ALLOWED_DIMS IS JSON),
     CONSTRAINT WH_RM_FILTERS_JSON_CK CHECK (ALLOWED_FILTERS IS JSON),
@@ -81,8 +87,10 @@ COMMENT ON COLUMN WH_REGISTERED_METRIC.UNIT IS 'Display unit, such as requisitio
 COMMENT ON COLUMN WH_REGISTERED_METRIC.SOURCE_VIEW IS 'Same-schema approved source view; application validates the object before certification and execution.';
 COMMENT ON COLUMN WH_REGISTERED_METRIC.DATE_COLUMN IS 'Date or timestamp column used for half-open period bounds.';
 COMMENT ON COLUMN WH_REGISTERED_METRIC.LOCATION_COLUMN IS 'Text key column in the approved view used to enforce WH_USER_LOCATION grants on every scoped answer.';
-COMMENT ON COLUMN WH_REGISTERED_METRIC.VALUE_COLUMN IS 'Numeric column required by SUM and AVG; null for COUNT.';
-COMMENT ON COLUMN WH_REGISTERED_METRIC.AGGREGATION IS 'Reviewed aggregate operator: COUNT, SUM, or AVG.';
+COMMENT ON COLUMN WH_REGISTERED_METRIC.VALUE_COLUMN IS 'Numeric column required by SUM and AVG; null for COUNT and RATIO_SUM.';
+COMMENT ON COLUMN WH_REGISTERED_METRIC.NUMERATOR_COLUMN IS 'Numeric numerator component required by RATIO_SUM; null for other kinds.';
+COMMENT ON COLUMN WH_REGISTERED_METRIC.DENOMINATOR_COLUMN IS 'Numeric denominator component required by RATIO_SUM; null for other kinds.';
+COMMENT ON COLUMN WH_REGISTERED_METRIC.AGGREGATION IS 'Reviewed aggregate operator: COUNT, SUM, AVG, or RATIO_SUM.';
 COMMENT ON COLUMN WH_REGISTERED_METRIC.ALLOWED_DIMS IS 'JSON array of approved grouping column names.';
 COMMENT ON COLUMN WH_REGISTERED_METRIC.ALLOWED_FILTERS IS 'JSON array of approved filter column names.';
 COMMENT ON COLUMN WH_REGISTERED_METRIC.STATUS IS 'DRAFT, REVIEWED, CERTIFIED, or RETIRED.';
@@ -102,6 +110,6 @@ COMMENT ON COLUMN WH_REGISTERED_ANSWER_LOG.METRIC_ID IS 'Registered metric used 
 COMMENT ON COLUMN WH_REGISTERED_ANSWER_LOG.METRIC_VERSION IS 'Exact certified definition version used for this answer.';
 COMMENT ON COLUMN WH_REGISTERED_ANSWER_LOG.ASKED_BY IS 'Authenticated application user ID for new portable answers. Historical pre-security answers may be null.';
 COMMENT ON COLUMN WH_REGISTERED_ANSWER_LOG.QUERY_JSON IS 'Canonical approved question parameters as JSON.';
-COMMENT ON COLUMN WH_REGISTERED_ANSWER_LOG.COMPILED_SQL IS 'Fixed compiled read-only SQL executed for the answer.';
+COMMENT ON COLUMN WH_REGISTERED_ANSWER_LOG.COMPILED_SQL IS 'Fixed compiled read-only SQL that produced this answer, or provenance for a reused cache hit.';
 COMMENT ON COLUMN WH_REGISTERED_ANSWER_LOG.BIND_JSON IS 'JSON rendering of bind values used by COMPILED_SQL.';
 COMMENT ON COLUMN WH_REGISTERED_ANSWER_LOG.ROW_COUNT IS 'Number of result rows returned.';

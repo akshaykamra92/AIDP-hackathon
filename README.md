@@ -1,12 +1,12 @@
 # Ask the Warehouse
 
-**Ask for a number. See its meaning and who can see it.** Ask the Warehouse combines Oracle AI Database with a versioned metric catalog, reviewed source views, location-scoped users, bound SQL, and an answer log. An optional Oracle Select AI path drafts SQL for an administrator to inspect; it never executes that draft or turns it into a certified answer.
+**Ask for a number. See its meaning and who can see it.** Ask the Warehouse combines Oracle AI Database with a versioned metric catalog, reviewed source views, location-scoped users, bound SQL, and an answer log. Portable mode also supports a reviewed ratio calculation and optional per-user result caching. An optional Oracle Select AI path drafts SQL for an administrator to inspect; it never executes that draft or turns it into a certified answer.
 
 The repository contains only **synthetic** records. Its portable path connects to an adopter's existing Oracle schema through reviewed `WH_` adapter views; it does not import the demo records into that schema.
 
 ## Demo and repository
 
-- [Recorded browser demo](https://akshaykamra92.github.io/AIDP-hackathon/) — durable static replay of three synthetic scenarios. It makes no database calls and saves no requests.
+- [Recorded browser demo](https://akshaykamra92.github.io/AIDP-hackathon/) — durable static replay of four synthetic scenarios, including a location-scoped four-table ratio and separate cache-freshness checks. It makes no database calls and saves no requests.
 - [73-second showcase video](https://akshaykamra92.github.io/AIDP-hackathon/#video) — narrated, captioned overview of the Oracle catalog, approval flow, location access, and answer evidence. The [MP4](docs/media/ask-the-warehouse-showcase.mp4) is included in this repository.
 - [Public GitHub repository](https://github.com/akshaykamra92/AIDP-hackathon) — application, Oracle migrations and packages, synthetic seed, tests, and setup guides.
 - [Three-minute presenter script](docs/DEMO.md) — the live synthetic walkthrough. The FreeSQL-backed app has also been exercised through a temporary tunnel; run it locally for a repeatable live demo.
@@ -16,9 +16,9 @@ The repository contains only **synthetic** records. Its portable path connects t
 | Mode | Question interface | Data and access |
 | --- | --- | --- |
 | `APP_MODE=demo` (default) | A conservative natural-language parser covers five fixed workforce metrics. Unsupported qualifiers produce a refusal and certification request. | Disposable synthetic tables and fixed reviewed SQL. |
-| `APP_MODE=portable` | A structured explorer and API query certified `COUNT`, `SUM`, or `AVG` metrics registered in Oracle. | Your approved `WH_` views; bearer-token users and active location grants are required for every metric read. |
+| `APP_MODE=portable` | A structured explorer and API query certified `COUNT`, `SUM`, `AVG`, or `RATIO_SUM` metrics registered in Oracle. | Your approved `WH_` views; bearer-token users and active location grants are required for every metric read. |
 
-Portable metric meanings, owners, versions, source contracts, review records, and certification states live in `WH_REGISTERED_METRIC`. Review records a SHA-256 fingerprint of the complete source-view DDL, and queries reject a changed view. `WH_METRIC_GOVERNANCE` moves a new version through **DRAFT → REVIEWED → CERTIFIED**, with a different authenticated administrator approving it. `WH_SECURITY_ADMIN` manages users and location grants. Each certified query checks those grants inside the SQL statement, then records its version, SQL, bind values, user ID, and row count in `WH_REGISTERED_ANSWER_LOG`.
+Portable metric meanings, owners, versions, source contracts, review records, and certification states live in `WH_REGISTERED_METRIC`. Review records a SHA-256 fingerprint of the registered source-view DDL, and queries reject a changed view. The trusted CLI authenticates separate administrator tokens for review and certification; `WH_METRIC_GOVERNANCE` enforces their recorded IDs differ but does not authenticate tokens itself. `WH_SECURITY_ADMIN` manages users and location grants. Each fresh certified query checks those grants inside the SQL statement, then records its version, SQL, bind values, user ID, and row count in `WH_REGISTERED_ANSWER_LOG`.
 
 | Output | How it is produced | What the user receives |
 | --- | --- | --- |
@@ -51,20 +51,24 @@ Open `http://127.0.0.1:8000/`. `deploy.py --apply` **resets the eight synthetic 
 
 ## Connect your own Oracle data
 
-Set `APP_MODE=portable` in `.env`, then install the non-destructive catalog and security layers:
+Set `APP_MODE=portable` in `.env`, then install the non-destructive catalog and security layers. The final two cache commands are optional:
 
 ```bash
 python scripts/install_catalog.py --dry-run
 python scripts/install_catalog.py --apply
 python scripts/install_security.py --dry-run
 python scripts/install_security.py --apply
+python scripts/install_cache.py --dry-run
+python scripts/install_cache.py --apply
 ```
 
-Create a first administrator with `scripts/userctl.py bootstrap`, register location keys, grant users only the locations they may query, and create a second administrator for metric approval. Expose source facts through a same-schema `WH_` view with a **text `LOCATION_KEY` per source row**. Save a typed JSON metric manifest and use `scripts/metricctl.py` to draft, preview, review, and certify it. CLI tokens are written once to private files under the git-ignored `work/` directory and are never printed.
+The cache installer is optional; a fresh install enables no metric policy, and reapplying it preserves existing policies. Create a first administrator with `scripts/userctl.py bootstrap`, register location keys, grant users only the locations they may query, and create a second administrator for metric approval. Expose source facts through a same-schema `WH_` view with a **text `LOCATION_KEY` per source row**. Save a typed JSON metric manifest and use `scripts/metricctl.py` to draft, preview, review, and certify it. CLI tokens are written once to private files under the git-ignored `work/` directory and are never printed.
+
+The fixed `RATIO_SUM` kind divides the sum of one approved numeric column by the sum of another only when the denominator sum is **positive** and all components are non-null; its result is a fraction. The [four-table synthetic fulfillment example](examples/on_time_fulfillment.md) shows a reviewed join grain and event-time location. To reuse a certified result for up to 30 minutes, set `RESULT_CACHE_ENABLED=true` and opt in an exact metric version with `scripts/cachectl.py set-policy --ttl-seconds 1800`. Ingestion must advance that adapter's data revision in the **same transaction** as any change to a direct or nested source dependency for immediate invalidation; otherwise the TTL only bounds staleness. See [the cache and question guide](docs/QUESTION_ENGINE.md) for commands, access checks, and maintenance.
 
 Follow the full [adoption workflow](docs/ADOPTION.md), [location security guide](docs/SECURITY.md), and [schema and calculation extension guide](docs/EXTENDING.md). Existing catalog installations can be migrated without deleting their metrics; old versions lacking a location column or reviewed view fingerprint remain unavailable to portable readers until a new scoped version is certified. **Do not run `deploy.py --apply` against your organization's schema.**
 
-Portable mode currently uses a structured metric picker and query API. It does not translate arbitrary natural-language questions into certified SQL. Only approved metric and filter fields can affect a certified answer.
+Portable mode currently uses a structured metric picker and query API. It does not yet resolve natural-language aliases or richer multi-value and range parameters. Multiple approved equality filters can be combined; only approved metric and filter fields can affect a certified answer. A certified query returns at most 500 rows and refuses a larger grouping rather than truncating it.
 
 ## Run in Docker
 
@@ -98,6 +102,6 @@ python3 -m unittest discover -s tests -v
 python3 tests/run_golden.py
 ```
 
-The golden runner checks parser and compiler behavior on synthetic metadata. A live database check also needs the configured Oracle connection and `sql/03_verify.sql`. The portable security path was exercised against FreeSQL with two users on different locations; a Florida user granted two sites saw 13 Q3 filled requisitions, while an Alabama user granted one site saw 5. Cross-location queries returned no data, and reactivating a disabled location did not restore a revoked grant.
+The golden runner checks parser and compiler behavior on synthetic metadata. A live database check also needs the configured Oracle connection and `sql/03_verify.sql`. The portable security path was exercised against FreeSQL with two users on different locations; a Florida user granted two sites saw 13 Q3 filled requisitions, while an Alabama user granted one site saw 5. Cross-location queries returned no data, and reactivating a disabled location did not restore a revoked grant. The catalog and cache installers verified in FreeSQL; a scoped metric returned `MISS` then `HIT` with the same Oracle UTC calculation-start time and a 1,800-second expiry interval. A separate one-second TTL check missed after expiry. The four-table ratio preview returned `0.5` and passed review and certification by distinct administrators through the CLI.
 
 This remains a deployable **prototype** using one Oracle schema owner for administration and runtime. The application enforces bearer identity and location predicates; the schema owner still has direct table privileges. For sensitive deployment, use HTTPS and enterprise identity management, split Oracle runtime and administration accounts, restrict source privileges, and test database row policies as defense in depth. See [SECURITY.md](docs/SECURITY.md) for the exact boundary.

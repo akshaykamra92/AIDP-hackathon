@@ -17,3 +17,12 @@ This repository is a hackathon prototype called **Ask the Warehouse**. Keep it p
 - Create, review, and certify portable metric versions through `WH_METRIC_GOVERNANCE`. The web app can query certified versions but must not expose a catalog publish route.
 - Add calculation kinds through reviewed compiler and governance changes with tests; never accept arbitrary SQL from a manifest, browser, or model.
 - `scripts/deploy.py --apply` resets the synthetic demo schema. Use the non-destructive catalog and security installers for another organization's database.
+
+## Extending the question engine
+
+- Read `docs/QUESTION_ENGINE.md`, `docs/EXTENDING.md`, and `docs/SECURITY.md` before changing question resolution, metric compilation, caching, or source adapters. Keep the docs aligned with what is implemented versus proposed.
+- Resolve a question into a **complete typed request** (certified metric ID/version, period, dimensions, and every material filter) before executing or caching an answer. Rewordings may share a result only when they produce the same request. If a qualifier or required parameter cannot be resolved, ask for clarification or refuse certification; never drop it.
+- Treat embeddings or Select AI as candidate discovery only. A similarity score, generated SQL statement, or cached natural-language answer cannot certify a metric.
+- Cache only location-scoped certified results for a verified user with a declared freshness policy. A cache key must cover metric version, fixed compiled SQL, typed parameters, source change revision, and access change revision. Add an explicit compiler release ID if future semantic code changes would leave SQL unchanged. Recheck current identity, grants, certification, source integrity, and expiry on every hit. Record cache hits and fresh executions distinctly in the answer audit.
+- For source views that join multiple tables, preserve the fact grain and one event-time `LOCATION_KEY` per contributing row. Advance the source revision when ingestion changes, deletes, or corrects a dependency; a timer bounds staleness but cannot detect an early load. Disable caching when source or policy dependencies cannot be tracked safely.
+- Add complex formulas as named, fixed compiler kinds over validated view columns. Keep join logic and conditional eligibility in reviewed `WH_` adapters; bind values for approved parameters. Do not store executable SQL fragments in metric rows, question templates, or cache policies.

@@ -23,9 +23,10 @@ from app.metrics import CompileError, CompiledQuery
 _IDENTIFIER = re.compile(r"[A-Z][A-Z0-9_$#]*\Z", re.ASCII)
 _SHA256 = re.compile(r"[0-9a-fA-F]{64}\Z", re.ASCII)
 _STATUSES = frozenset({"DRAFT", "REVIEWED", "CERTIFIED", "RETIRED"})
-_AGGREGATIONS = frozenset({"COUNT", "SUM", "AVG"})
+_AGGREGATIONS = frozenset({"COUNT", "SUM", "AVG", "RATIO_SUM"})
 MAX_REPORTING_MONTHS = 36
 MAX_FILTER_STRING_LENGTH = 256
+MAX_ANSWER_ROWS = 500
 _MANIFEST_KEYS = frozenset(
     {
         "metric_id",
@@ -37,6 +38,8 @@ _MANIFEST_KEYS = frozenset(
         "date_column",
         "location_column",
         "value_column",
+        "numerator_column",
+        "denominator_column",
         "aggregation",
         "allowed_dims",
         "allowed_filters",
@@ -118,6 +121,8 @@ class RegisteredMetric:
     date_column: str
     location_column: str | None
     value_column: str | None
+    numerator_column: str | None
+    denominator_column: str | None
     aggregation: str
     allowed_dims: tuple[str, ...]
     allowed_filters: tuple[str, ...]
@@ -145,16 +150,23 @@ class RegisteredMetric:
         if self.location_column is not None:
             _identifier(self.location_column, "Location column")
         if self.aggregation not in _AGGREGATIONS:
-            raise CompileError("INVALID_AGGREGATION", "Use COUNT, SUM, or AVG.")
+            raise CompileError("INVALID_AGGREGATION", "Use COUNT, SUM, AVG, or RATIO_SUM.")
         if self.status not in _STATUSES:
             raise CompileError("INVALID_METRIC_STATUS", "Use DRAFT, REVIEWED, CERTIFIED, or RETIRED.")
         if self.aggregation == "COUNT":
-            if self.value_column is not None:
-                raise CompileError("INVALID_VALUE_COLUMN", "COUNT does not use a value column.")
-        elif self.value_column is None:
-            raise CompileError("INVALID_VALUE_COLUMN", "SUM and AVG require a numeric value column.")
-        else:
+            if any(column is not None for column in (
+                self.value_column, self.numerator_column, self.denominator_column,
+            )):
+                raise CompileError("INVALID_VALUE_COLUMN", "COUNT does not use value or ratio columns.")
+        elif self.aggregation in {"SUM", "AVG"}:
+            if self.value_column is None or self.numerator_column is not None or self.denominator_column is not None:
+                raise CompileError("INVALID_VALUE_COLUMN", "SUM and AVG require only one numeric value column.")
             _identifier(self.value_column, "Value column")
+        else:
+            if self.value_column is not None or self.numerator_column is None or self.denominator_column is None:
+                raise CompileError("INVALID_RATIO_COLUMNS", "RATIO_SUM requires numerator and denominator columns, and no value column.")
+            _identifier(self.numerator_column, "Numerator column")
+            _identifier(self.denominator_column, "Denominator column")
         object.__setattr__(self, "allowed_dims", _names(self.allowed_dims, "Allowed dimensions"))
         object.__setattr__(self, "allowed_filters", _names(self.allowed_filters, "Allowed filters"))
         if "VALUE" in self.allowed_dims:
@@ -186,6 +198,8 @@ class RegisteredMetric:
             date_column=_text(data.get("date_column")),
             location_column=_text(data["location_column"]) if data.get("location_column") is not None else None,
             value_column=_text(data["value_column"]) if data.get("value_column") is not None else None,
+            numerator_column=_text(data["numerator_column"]) if data.get("numerator_column") is not None else None,
+            denominator_column=_text(data["denominator_column"]) if data.get("denominator_column") is not None else None,
             aggregation=_text(data.get("aggregation")),
             allowed_dims=_names(data.get("allowed_dims"), "Allowed dimensions"),
             allowed_filters=_names(data.get("allowed_filters"), "Allowed filters"),
@@ -222,6 +236,8 @@ class RegisteredMetric:
             date_column=_text(data.get("date_column")),
             location_column=_text(data.get("location_column")),
             value_column=_text(data["value_column"]) if data.get("value_column") is not None else None,
+            numerator_column=_text(data["numerator_column"]) if data.get("numerator_column") is not None else None,
+            denominator_column=_text(data["denominator_column"]) if data.get("denominator_column") is not None else None,
             aggregation=_text(data.get("aggregation")),
             allowed_dims=_names(data.get("allowed_dims"), "Allowed dimensions"),
             allowed_filters=_names(data.get("allowed_filters"), "Allowed filters"),
@@ -240,6 +256,9 @@ class RegisteredMetric:
             "source_view": self.source_view,
             "date_column": self.date_column,
             "location_column": self.location_column,
+            "value_column": self.value_column,
+            "numerator_column": self.numerator_column,
+            "denominator_column": self.denominator_column,
             "aggregation": self.aggregation,
             "allowed_dims": list(self.allowed_dims),
             "allowed_filters": list(self.allowed_filters),
@@ -323,15 +342,32 @@ def compile_registered(
         binds[bind_name] = value
         conditions.append(f"src.{column} = :{bind_name}")
 
-    target = "*" if metric.aggregation == "COUNT" else f"src.{metric.value_column}"
-    aggregate = f"{metric.aggregation}({target})"
-    count_target = "*" if metric.aggregation == "COUNT" else f"src.{metric.value_column}"
+    if metric.aggregation == "RATIO_SUM":
+        numerator = f"src.{metric.numerator_column}"
+        denominator = f"src.{metric.denominator_column}"
+        aggregate = (
+            f"CASE WHEN COUNT({numerator}) = COUNT(*) "
+            f"AND COUNT({denominator}) = COUNT(*) AND SUM({denominator}) > 0 "
+            f"THEN SUM({numerator}) / NULLIF(SUM({denominator}), 0) "
+            "ELSE CAST(NULL AS NUMBER) END"
+        )
+        having = None
+    else:
+        target = "*" if metric.aggregation == "COUNT" else f"src.{metric.value_column}"
+        aggregate = f"{metric.aggregation}({target})"
+        # SUM/AVG must surface an all-null group as NULL so the repository can
+        # refuse the whole answer instead of silently dropping that group.
+        having = "COUNT(*) > 0" if metric.aggregation == "COUNT" else None
     projection = ", ".join(f"src.{name}" for name in selected_dims)
     sql = "SELECT " + (projection + ", " if projection else "") + aggregate + " AS value"
     sql += f" FROM {metric.source_view} src WHERE " + " AND ".join(conditions)
     if selected_dims:
         sql += " GROUP BY " + projection
-    sql += f" HAVING COUNT({count_target}) > 0"
+    if having is not None:
+        sql += f" HAVING {having}"
     if selected_dims:
         sql += " ORDER BY " + projection
+    # Return one sentinel row beyond the public cap; the repository rejects
+    # the entire answer instead of serving a truncated grouping.
+    sql += f" FETCH FIRST {MAX_ANSWER_ROWS + 1} ROWS ONLY"
     return CompiledQuery(sql=sql, binds=binds, columns=tuple(name.lower() for name in selected_dims) + ("value",))

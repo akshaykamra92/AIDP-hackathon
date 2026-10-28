@@ -10,13 +10,15 @@ from __future__ import annotations
 
 import hashlib
 import json
-from datetime import date, datetime
+import os
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Any, Mapping, Sequence
 
 from app.db import DatabaseUnavailable, OracleRepository
 from app.metrics import CompileError
-from app.registered_metrics import RegisteredMetric, compile_registered
+from app.registered_metrics import MAX_ANSWER_ROWS, RegisteredMetric, compile_registered
+from app.result_cache import CacheIdentity, ResultCacheRepository, build_identity, utc_timestamp_text
 
 
 class CatalogError(ValueError):
@@ -27,7 +29,8 @@ class CatalogError(ValueError):
 
 _METRIC_COLUMNS = (
     "metric_id, version, name, owner, definition_text, unit, source_view, "
-    "date_column, location_column, value_column, aggregation, allowed_dims, allowed_filters, "
+    "date_column, location_column, value_column, numerator_column, denominator_column, "
+    "aggregation, allowed_dims, allowed_filters, "
     "status, created_at, reviewed_at, reviewed_by, review_note, "
     "certified_at, certified_by, source_ddl_at, source_ddl_sha256"
 )
@@ -54,8 +57,17 @@ def _actor(value: str, label: str) -> str:
 class RegisteredMetricRepository:
     """Use an Oracle schema containing the non-destructive portable catalog."""
 
-    def __init__(self, database: OracleRepository | None = None):
+    def __init__(
+        self, database: OracleRepository | None = None,
+        *, result_cache: ResultCacheRepository | None = None,
+        cache_enabled: bool | None = None,
+    ):
         self.database = database or OracleRepository()
+        self.cache_enabled = (
+            cache_enabled if cache_enabled is not None
+            else os.getenv("RESULT_CACHE_ENABLED", "false").strip().lower() == "true"
+        )
+        self.result_cache = result_cache or ResultCacheRepository(self.database)
 
     def catalog_ready(self) -> bool:
         rows = self.database.run_readonly(
@@ -148,6 +160,10 @@ class RegisteredMetricRepository:
             needed.add(metric.location_column)
         if metric.value_column:
             needed.add(metric.value_column)
+        if metric.numerator_column:
+            needed.add(metric.numerator_column)
+        if metric.denominator_column:
+            needed.add(metric.denominator_column)
         if any(name not in columns for name in needed):
             raise CatalogError("SOURCE_COLUMN_MISSING", "The adapter view is missing a registered column.")
         date_type = columns[metric.date_column]
@@ -155,6 +171,10 @@ class RegisteredMetricRepository:
             raise CatalogError("INVALID_DATE_COLUMN", "The metric date column must be DATE or TIMESTAMP without time zone.")
         if metric.value_column and columns[metric.value_column] not in _NUMBER_TYPES:
             raise CatalogError("INVALID_VALUE_COLUMN", "SUM and AVG require an Oracle numeric value column.")
+        if metric.numerator_column and columns[metric.numerator_column] not in _NUMBER_TYPES:
+            raise CatalogError("INVALID_NUMERATOR_COLUMN", "The ratio numerator must be an Oracle numeric column.")
+        if metric.denominator_column and columns[metric.denominator_column] not in _NUMBER_TYPES:
+            raise CatalogError("INVALID_DENOMINATOR_COLUMN", "The ratio denominator must be an Oracle numeric column.")
         if metric.location_column and columns[metric.location_column] not in _TEXT_TYPES:
             raise CatalogError("INVALID_LOCATION_COLUMN", "The location key column must be an Oracle text column.")
         if any(columns[name] not in _TEXT_TYPES | _NUMBER_TYPES for name in (*metric.allowed_dims, *metric.allowed_filters)):
@@ -216,6 +236,8 @@ class RegisteredMetricRepository:
                 metric.date_column,
                 metric.location_column,
                 metric.value_column,
+                metric.numerator_column,
+                metric.denominator_column,
                 metric.aggregation,
                 json.dumps(metric.allowed_dims),
                 json.dumps(metric.allowed_filters),
@@ -264,24 +286,44 @@ class RegisteredMetricRepository:
     def log_answer(
         self, *, metric: RegisteredMetric, query: Mapping[str, Any], compiled_sql: str,
         binds: Mapping[str, Any], row_count: int, asked_by: str | None,
+        cache_status: str = "DISABLED", cache_key: str | None = None,
+        result_generated_at: datetime | None = None,
     ) -> None:
         conn = self.database._connect()
         try:
             with conn.cursor() as cursor:
-                cursor.execute(
-                    "INSERT INTO WH_REGISTERED_ANSWER_LOG "
-                    "(ASKED_AT, METRIC_ID, METRIC_VERSION, ASKED_BY, QUERY_JSON, COMPILED_SQL, BIND_JSON, ROW_COUNT) "
-                    "VALUES (SYSTIMESTAMP, :metric_id, :metric_version, :asked_by, :query_json, :compiled_sql, :bind_json, :row_count)",
-                    {
-                        "metric_id": metric.metric_id,
-                        "metric_version": metric.version,
-                        "asked_by": asked_by,
-                        "query_json": json.dumps(query, default=_json_value),
-                        "compiled_sql": compiled_sql,
-                        "bind_json": json.dumps(binds, default=_json_value),
-                        "row_count": row_count,
-                    },
-                )
+                values = {
+                    "metric_id": metric.metric_id,
+                    "metric_version": metric.version,
+                    "asked_by": asked_by,
+                    "query_json": json.dumps(query, default=_json_value),
+                    "compiled_sql": compiled_sql,
+                    "bind_json": json.dumps(binds, default=_json_value),
+                    "row_count": row_count,
+                }
+                if cache_status in {"HIT", "MISS"}:
+                    values.update({
+                        "cache_status": cache_status,
+                        "cache_key": cache_key,
+                        "result_generated_at_utc": utc_timestamp_text(result_generated_at),
+                    })
+                    cursor.execute(
+                        "INSERT INTO WH_REGISTERED_ANSWER_LOG "
+                        "(ASKED_AT, METRIC_ID, METRIC_VERSION, ASKED_BY, QUERY_JSON, "
+                        "COMPILED_SQL, BIND_JSON, ROW_COUNT, CACHE_STATUS, CACHE_KEY, RESULT_GENERATED_AT) "
+                        "VALUES (SYSTIMESTAMP, :metric_id, :metric_version, :asked_by, :query_json, "
+                        ":compiled_sql, :bind_json, :row_count, :cache_status, :cache_key, "
+                        "FROM_TZ(TO_TIMESTAMP(:result_generated_at_utc, "
+                        "'YYYY-MM-DD\"T\"HH24:MI:SS.FF6'), '+00:00'))",
+                        values,
+                    )
+                else:
+                    cursor.execute(
+                        "INSERT INTO WH_REGISTERED_ANSWER_LOG "
+                        "(ASKED_AT, METRIC_ID, METRIC_VERSION, ASKED_BY, QUERY_JSON, COMPILED_SQL, BIND_JSON, ROW_COUNT) "
+                        "VALUES (SYSTIMESTAMP, :metric_id, :metric_version, :asked_by, :query_json, :compiled_sql, :bind_json, :row_count)",
+                        values,
+                    )
             conn.commit()
         except Exception as exc:
             conn.rollback()
@@ -311,13 +353,41 @@ class RegisteredMetricRepository:
             metric, start_date, end_date, normalized_dims, normalized_filters,
             scope_user_id=user_id,
         )
-        raw_rows = self.database.run_readonly(
-            compiled.sql, compiled.binds, client_identifier=user_id,
-        )
-        rows = [
-            {str(key).lower(): _json_value(value) for key, value in row.items()}
-            for row in raw_rows
-        ]
+        cache_status = "DISABLED"
+        cache_identity: CacheIdentity | None = None
+        cached = None
+        source_started_at: datetime | None = None
+        if self.cache_enabled:
+            try:
+                policy = self.result_cache.policy_for(metric)
+                if policy is not None:
+                    cache_identity = build_identity(metric, compiled, user_id, policy)
+                    cached = self.result_cache.get_hit(cache_identity)
+                    cache_status = "HIT" if cached is not None else "MISS"
+                    if cached is None:
+                        source_started_at = self.result_cache.current_utc()
+            except (DatabaseUnavailable, ValueError, KeyError, TypeError):
+                # Cache metadata cannot authorize a result. The scoped SQL still can.
+                cache_status = "BYPASS"
+                cache_identity = None
+
+        if cached is not None:
+            rows = cached.rows
+            generated_at = cached.generated_at
+        else:
+            raw_rows = self.database.run_readonly(
+                compiled.sql, compiled.binds, client_identifier=user_id,
+            )
+            if len(raw_rows) > MAX_ANSWER_ROWS:
+                raise CatalogError(
+                    "RESULT_TOO_LARGE",
+                    f"The certified result exceeds {MAX_ANSWER_ROWS} rows. Narrow the approved grouping or period.",
+                )
+            rows = [
+                {str(key).lower(): _json_value(value) for key, value in row.items()}
+                for row in raw_rows
+            ]
+            generated_at = source_started_at or datetime.now(timezone.utc)
         if not rows or any(row.get("value") is None for row in rows):
             raise CatalogError("NO_DATA", "The adapter view has no matching data for that period and selection.")
         request = {
@@ -331,7 +401,16 @@ class RegisteredMetricRepository:
         self.log_answer(
             metric=metric, query=request, compiled_sql=compiled.sql,
             binds=compiled.binds, row_count=len(rows), asked_by=user_id,
+            cache_status=cache_status,
+            cache_key=cache_identity.key if cache_identity is not None else None,
+            result_generated_at=generated_at,
         )
+        if cache_status == "MISS" and cache_identity is not None:
+            try:
+                self.result_cache.put(cache_identity, rows, generated_at)
+            except Exception:
+                # The answer has already been audited; cache availability is optional.
+                pass
         return {
             "tier": "CERTIFIED",
             "metric": metric.public_dict(),
@@ -342,6 +421,11 @@ class RegisteredMetricRepository:
             "sql": compiled.sql,
             "binds": {key: _json_value(value) for key, value in compiled.binds.items()},
             "access": {"user_id": user_id, "location_scoped": True},
+            "cache": {
+                "status": cache_status,
+                "generated_at": generated_at.isoformat(),
+                "ttl_seconds": cache_identity.policy.ttl_seconds if cache_identity is not None else None,
+            },
             "coverage_note": (
                 "Results are limited to your active location grants. "
                 "The adapter view owner is responsible for source completeness."

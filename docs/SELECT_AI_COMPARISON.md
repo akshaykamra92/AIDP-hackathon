@@ -6,7 +6,7 @@
 | --- | --- | --- |
 | Input | A registered metric ID, full-month period, and approved dimensions or filters. The synthetic demo also parses a narrow set of natural-language questions. | A question from an authenticated portable **ADMIN**. |
 | Source context | A reviewed, owned `WH_` adapter view and a versioned manifest saved in Oracle; the reviewed full-view fingerprint is checked before an answer. | An enabled AI profile listing explicitly approved, owned `WH_` views. |
-| SQL | The application's fixed `COUNT`/`SUM`/`AVG` compiler uses allowlisted identifiers and bind values. | `DBMS_CLOUD_AI.GENERATE(..., action => 'showsql')` produces SQL text for inspection. |
+| SQL | The application's fixed `COUNT`/`SUM`/`AVG`/`RATIO_SUM` compiler uses allowlisted identifiers and bind values. A reviewed adapter view can contain joins and eligibility rules. | `DBMS_CLOUD_AI.GENERATE(..., action => 'showsql')` produces SQL text for inspection. |
 | Location access | The answer statement joins active user, grant, and location records against each source row's location key. | The endpoint is administrator-only and **does not execute** generated SQL. A profile object list is not row-level access control. |
 | Output | A number plus approved definition, owner, version, SQL, binds, and answer-log record. | Exploratory SQL text with `executed: false` and `certified: false`. |
 | Unsupported meaning | No certified number; propose a new reviewed metric. | A draft may help an analyst inspect possible source logic, but cannot publish a metric. |
@@ -19,6 +19,7 @@
 | “Turnover in Florida Q3 2026 including transfers” | The extra qualifier conflicts with the approved turnover definition, so the app refuses to certify it. A separate fixed demo comparison shows **2.33%** as an illustrative interpretation. | It could draft an alternate query for an analyst to review. **2.33% is not a Select AI output.** |
 | “What's our burnout rate?” | No metric is certified, so the demo returns no number and offers a certification request. | A draft could suggest a source query, but cannot establish an approved business definition or owner. |
 | A reader asks for a region containing both allowed and disallowed locations | The portable query aggregates only rows at the reader's active locations, regardless of the broader grouping or filter. | The preview route is unavailable to a reader. The profile's object list does not express that reader's location grants. |
+| “What fraction of direct orders were fulfilled on time in Florida in Q3 2026?” | The [four-table synthetic adapter](../examples/on_time_fulfillment.md) reduces child rows to one order, applies approved `STATE` and `CHANNEL` binds, and uses the reviewed `RATIO_SUM` formula. Its scoped draft preview returned **0.5** in FreeSQL and passed separate review and certification. | With an enabled profile, Select AI could draft a query for inspection; no generated result was used for the ratio. |
 
 The two turnover figures come from deterministic **synthetic** Oracle records. The four additional internal transfers and shared denominator can be checked in [`sql/03_verify.sql`](../sql/03_verify.sql). The FreeSQL demo has no AI provider credential or profile configured, so these are fixed application calculations, not live model outputs.
 

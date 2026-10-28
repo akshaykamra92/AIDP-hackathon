@@ -1,0 +1,15 @@
+{
+  "metric_id": "ON_TIME_FULFILLMENT_RATIO",
+  "name": "On-time fulfillment ratio",
+  "owner": "Synthetic Operations Analytics",
+  "definition_text": "Fulfilled orders with FULFILLED_AT on or before the PROMISED_AT timestamp divided by all fulfilled orders with a positive line quantity. Each order counts once, attributed to its site at fulfillment. A nonpositive or missing denominator or any null component has no answer.",
+  "unit": "fraction",
+  "source_view": "WH_EXAMPLE_ON_TIME_FULFILLMENT",
+  "date_column": "METRIC_DATE",
+  "location_column": "LOCATION_KEY",
+  "numerator_column": "ON_TIME_NUM",
+  "denominator_column": "ELIGIBLE_DEN",
+  "aggregation": "RATIO_SUM",
+  "allowed_dims": ["STATE", "CHANNEL", "ORDER_SIZE_BAND"],
+  "allowed_filters": ["STATE", "CHANNEL", "ORDER_SIZE_BAND"]
+}

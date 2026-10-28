@@ -3,7 +3,7 @@
 
   const buttons = Array.from(document.querySelectorAll(".scenario-button"));
   const panels = new Map(
-    ["certified", "comparison", "refusal"].map((name) => [
+    ["certified", "comparison", "refusal", "scope-cache"].map((name) => [
       name,
       document.getElementById(`panel-${name}`),
     ]),
@@ -13,6 +13,7 @@
     certified: "Showing the recorded certified turnover answer.",
     comparison: "Showing the recorded turnover definition comparison.",
     refusal: "Showing the recorded refusal and request preview.",
+    "scope-cache": "Showing the recorded location-scoped fulfillment ratio and separate result-cache checks.",
   };
 
   for (const button of buttons) {

@@ -117,7 +117,7 @@
 
       <section id="result-section" class="result-section" aria-labelledby="result-title" aria-live="polite" hidden>
         <div class="result-heading"><p class="section-kicker">03 · VERIFIED RESULT</p><h2 id="result-title">Certified answer</h2></div>
-        <p id="query-loading" class="query-loading" role="status" hidden>Running the approved query and recording its provenance…</p>
+        <p id="query-loading" class="query-loading" role="status" hidden>Checking access and freshness, then recording the approved result…</p>
         <div id="result-error" class="result-error" role="alert" hidden></div>
         <article id="result-card" class="result-card" hidden>
           <div class="result-topline"><span class="certified-tag">● CERTIFIED ANSWER</span><span id="result-period"></span></div>
@@ -130,6 +130,9 @@
             <div><dt>VERSION</dt><dd id="result-version"></dd></div>
             <div><dt>REVIEWED</dt><dd id="result-reviewed"></dd></div>
             <div><dt>CERTIFIED</dt><dd id="result-certified"></dd></div>
+            <div><dt>RESULT SOURCE</dt><dd id="result-cache-status"></dd></div>
+            <div><dt>FRESHNESS LIMIT</dt><dd id="result-cache-ttl"></dd></div>
+            <div><dt>CALCULATION STARTED (UTC)</dt><dd id="result-generated-at"></dd></div>
             <div class="wide"><dt>SOURCE VIEW</dt><dd id="result-source"></dd></div>
           </dl>
           <div id="result-table-wrap" class="result-table-wrap" hidden>

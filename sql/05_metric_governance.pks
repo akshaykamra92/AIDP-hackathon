@@ -9,6 +9,8 @@ CREATE OR REPLACE PACKAGE WH_METRIC_GOVERNANCE AUTHID DEFINER AS
         p_date_column     IN VARCHAR2,
         p_location_column IN VARCHAR2,
         p_value_column    IN VARCHAR2,
+        p_numerator_column IN VARCHAR2,
+        p_denominator_column IN VARCHAR2,
         p_aggregation     IN VARCHAR2,
         p_allowed_dims    IN CLOB,
         p_allowed_filters IN CLOB,

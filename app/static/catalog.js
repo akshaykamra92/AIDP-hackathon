@@ -30,7 +30,21 @@
     const formatted = new Intl.NumberFormat(undefined, { maximumFractionDigits: 4 }).format(number);
     const normalizedUnit = String(unit || "").trim();
     if (normalizedUnit.toLowerCase() === "percent" || normalizedUnit === "%") return `${formatted}%`;
+    if (normalizedUnit.toLowerCase() === "fraction") return formatted;
     return normalizedUnit ? `${formatted} ${normalizedUnit}` : formatted;
+  }
+
+  function formatFreshness(seconds) {
+    if (!Number.isInteger(seconds) || seconds <= 0) return "Not enabled";
+    if (seconds % 3600 === 0) return `${seconds / 3600} ${seconds === 3600 ? "hour" : "hours"}`;
+    if (seconds % 60 === 0) return `${seconds / 60} ${seconds === 60 ? "minute" : "minutes"}`;
+    return `${seconds} ${seconds === 1 ? "second" : "seconds"}`;
+  }
+
+  function formatGeneratedAt(value) {
+    if (!value) return "Not supplied";
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? String(value) : `${date.toISOString().replace("T", " ").slice(0, 19)} UTC`;
   }
 
   async function api(url, options) {
@@ -362,6 +376,16 @@
     text("result-reviewed", approvalLabel(metric.reviewed_by, metric.reviewed_at));
     text("result-certified", approvalLabel(metric.certified_by, metric.certified_at));
     text("result-source", metric.source_view || "Not supplied");
+    const cache = data.cache || {};
+    const cacheLabels = {
+      HIT: "Reused certified result",
+      MISS: "Fresh calculation · cache miss",
+      BYPASS: "Fresh calculation · cache unavailable",
+      DISABLED: "Fresh calculation · cache off",
+    };
+    text("result-cache-status", cacheLabels[cache.status] || "Fresh calculation");
+    text("result-cache-ttl", cache.status === "BYPASS" ? "Unavailable · fresh run" : formatFreshness(cache.ttl_seconds));
+    text("result-generated-at", formatGeneratedAt(cache.generated_at));
     const period = data.period || {};
     text("result-period", `${period.start || ""} → ${period.end || ""} (end exclusive)`);
     const scalar = rows.length === 1 && columns.length === 1 && columns[0] === "value";

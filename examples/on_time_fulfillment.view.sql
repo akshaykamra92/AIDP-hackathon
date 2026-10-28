@@ -1,0 +1,34 @@
+-- Synthetic multi-table adapter: one row per fulfilled order, never one row
+-- per order line. The shipment stores the location key at fulfillment time.
+-- An unauthenticated Oracle session cannot read rows through this view.
+
+CREATE OR REPLACE VIEW WH_EXAMPLE_ON_TIME_FULFILLMENT AS
+WITH line_totals AS (
+    SELECT ORDER_ID, COUNT(*) AS LINE_COUNT, SUM(QUANTITY) AS TOTAL_QUANTITY
+    FROM WH_EXAMPLE_ORDER_LINE
+    GROUP BY ORDER_ID
+)
+SELECT s.FULFILLED_AT AS METRIC_DATE,
+       s.SITE_CODE_AT_FULFILLMENT AS LOCATION_KEY,
+       TRIM(site.STATE_CODE) AS STATE,
+       o.CHANNEL AS CHANNEL,
+       CASE WHEN lines.LINE_COUNT >= 2 THEN 'MULTI_LINE' ELSE 'SINGLE_LINE' END AS ORDER_SIZE_BAND,
+       CASE WHEN s.FULFILLED_AT <= s.PROMISED_AT THEN 1 ELSE 0 END AS ON_TIME_NUM,
+       1 AS ELIGIBLE_DEN
+FROM WH_EXAMPLE_SHIPMENT s
+JOIN WH_EXAMPLE_ORDER o ON o.ORDER_ID = s.ORDER_ID
+JOIN WH_EXAMPLE_SITE site ON site.SITE_CODE = s.SITE_CODE_AT_FULFILLMENT
+JOIN line_totals lines ON lines.ORDER_ID = o.ORDER_ID
+WHERE o.STATUS = 'FILLED'
+  AND lines.TOTAL_QUANTITY > 0
+  AND EXISTS (
+      SELECT 1
+      FROM WH_USER_LOCATION acl
+      JOIN WH_SEC_LOCATION loc ON loc.LOCATION_KEY = acl.LOCATION_KEY
+      JOIN WH_APP_USER usr ON usr.USER_ID = acl.USER_ID
+      WHERE acl.USER_ID = SYS_CONTEXT('USERENV', 'CLIENT_IDENTIFIER')
+        AND usr.STATUS = 'ACTIVE'
+        AND acl.STATUS = 'ACTIVE'
+        AND loc.STATUS = 'ACTIVE'
+        AND acl.LOCATION_KEY = s.SITE_CODE_AT_FULFILLMENT
+  );

@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#17383b">
-  <meta name="description" content="A recorded, synthetic-data walkthrough of Ask the Warehouse: certified metrics, SQL provenance, definition comparison, and honest refusals.">
+  <meta name="description" content="A recorded, synthetic-data walkthrough of Ask the Warehouse: certified metrics, location-scoped answers, result freshness, SQL provenance, and honest refusals.">
   <title>Ask the Warehouse · Recorded demo</title>
   <link rel="stylesheet" href="site/recorded.css">
   <script defer src="site/recorded.js"></script>
@@ -29,7 +29,7 @@
           <span class="hero-recording">RECORDED ORACLE DEMO</span>
           <p class="eyebrow"><span class="eyebrow-rule" aria-hidden="true"></span> GOVERNED ANSWERS, IN PLAIN ENGLISH</p>
           <h1 id="hero-title">Ask a question.<br><span>Trust the number.</span></h1>
-          <p class="hero-lede">A useful answer needs more than a figure. See the approved definition, owner, reporting period, and fixed SQL behind a certified workforce metric.</p>
+          <p class="hero-lede">A useful answer needs more than a figure. See the approved definition, owner, reporting period, and fixed SQL behind a certified metric.</p>
           <a class="primary-link" href="#video">Watch the 73-second showcase <span aria-hidden="true">↓</span></a>
         </div>
         <div class="hero-proof" aria-label="Certified answer contract">
@@ -46,7 +46,7 @@
 
       <aside class="replay-notice" role="note" aria-label="Recorded demo disclosure">
         <span class="notice-icon" aria-hidden="true">◉</span>
-        <p><strong>Recorded Oracle demo · static replay.</strong> The figures below come from the documented synthetic Oracle seed and verification query. This page makes no database calls and saves no certification requests. The <a href="https://github.com/akshaykamra92/AIDP-hackathon" target="_blank" rel="noopener noreferrer">public repository</a> contains the live FastAPI application, Oracle scripts, and tests.</p>
+        <p><strong>Recorded Oracle demo · static replay.</strong> The figures below come from documented synthetic Oracle fixtures and recorded FreeSQL checks. This page makes no database calls and saves no certification requests. The <a href="https://github.com/akshaykamra92/AIDP-hackathon" target="_blank" rel="noopener noreferrer">public repository</a> contains the live FastAPI application, Oracle scripts, and tests.</p>
       </aside>
 
       <section id="video" class="video-section" aria-labelledby="video-title">
@@ -68,8 +68,8 @@
       <section id="walkthrough" class="walkthrough" aria-labelledby="walkthrough-title">
         <div class="section-intro">
           <div>
-            <p class="section-kicker">THREE MOMENTS IN THE PRODUCT</p>
-            <h2 id="walkthrough-title">Follow one question through the warehouse.</h2>
+            <p class="section-kicker">FOUR MOMENTS IN THE PRODUCT</p>
+            <h2 id="walkthrough-title">See how a governed answer works.</h2>
           </div>
           <p>Choose a step to inspect its recorded outcome.</p>
         </div>
@@ -91,7 +91,12 @@
               <span class="scenario-copy"><strong>See an honest refusal</strong><span>“What's our burnout rate?”</span></span>
               <span class="scenario-arrow" aria-hidden="true">→</span>
             </button>
-            <div class="scenario-footnote"><span aria-hidden="true">✦</span> All examples use synthetic employee and location data.</div>
+            <button class="scenario-button" type="button" data-scenario="scope-cache" aria-controls="panel-scope-cache" aria-pressed="false">
+              <span class="scenario-number">04</span>
+              <span class="scenario-copy"><strong>Scope a complex metric and reuse a result</strong><span>Four-table ratio · 30-minute cache policy</span></span>
+              <span class="scenario-arrow" aria-hidden="true">→</span>
+            </button>
+            <div class="scenario-footnote"><span aria-hidden="true">✦</span> All examples use synthetic workforce, order, and location data.</div>
           </nav>
 
           <div class="result-frame">
@@ -180,12 +185,46 @@ WHERE d.avg_headcount &gt; 0</code></pre>
               </div>
               <p class="result-source">The live endpoint and <code>WH_METRIC_REQUEST</code> table are documented in the <a href="https://github.com/akshaykamra92/AIDP-hackathon" target="_blank" rel="noopener noreferrer">public repo <span aria-hidden="true">↗</span></a>.</p>
             </article>
+
+            <article id="panel-scope-cache" class="result-panel" aria-labelledby="scope-cache-title" hidden>
+              <div class="result-topline"><span class="tier-chip certified-chip"><span aria-hidden="true">●</span> SCOPED METRIC + RESULT CACHE</span><span>Recorded FreeSQL checks · synthetic data</span></div>
+              <div class="engine-heading">
+                <p class="result-question">TWO SEPARATE PROOFS FROM THE PORTABLE APP</p>
+                <h3 id="scope-cache-title">Complex calculation. Controlled reuse.</h3>
+                <p>The ratio comparison uses <code>ON_TIME_FULFILLMENT_RATIO</code>; the 30-minute cache sequence uses <code>FILLED_REQUISITIONS</code>. These are recorded outcomes, not live queries from this page.</p>
+              </div>
+
+              <section class="engine-proof" aria-labelledby="ratio-proof-title">
+                <div class="engine-proof-heading"><span class="proof-letter" aria-hidden="true">A</span><div><p>VERIFIED CERTIFIED ANSWER</p><h4 id="ratio-proof-title">One four-table ratio, scoped by location</h4></div></div>
+                <p class="ratio-context">Q3 2026 · July 1 inclusive to October 1 exclusive · no extra filters</p>
+                <dl class="scope-values" aria-label="Recorded on-time fulfillment results by location grant">
+                  <div class="scope-value scope-value-all"><dt>DEMO-A + DEMO-B</dt><dd class="scope-result">0.6</dd><dd class="scope-detail">3 on-time ÷ 5 eligible orders</dd></div>
+                  <div class="scope-value"><dt>DEMO-A only</dt><dd class="scope-result">2/3</dd><dd class="scope-detail">2 on-time ÷ 3 eligible</dd></div>
+                  <div class="scope-value"><dt>DEMO-B only</dt><dd class="scope-result">0.5</dd><dd class="scope-detail">1 on-time ÷ 2 eligible</dd></div>
+                </dl>
+                <p class="engine-proof-copy"><code>ON_TIME_FULFILLMENT_RATIO</code> v1 uses a fixed <code>RATIO_SUM</code> compiler over a reviewed adapter joining synthetic orders, order lines, shipments, and sites. Order lines are reduced to one row per order; each order retains its fulfillment-time site. The SQL applies each reader's active location grants before calculating the fraction.</p>
+              </section>
+
+              <section class="engine-proof cache-proof" aria-labelledby="cache-proof-title">
+                <div class="engine-proof-heading"><span class="proof-letter" aria-hidden="true">B</span><div><p>VERIFIED CACHE BEHAVIOR</p><h4 id="cache-proof-title">A per-metric 30-minute maximum age</h4></div></div>
+                <div class="cache-policy"><div><span>FILLED_REQUISITIONS · VERSION 4</span><strong>1,800 seconds</strong></div><p>Opt-in policy for this certified version; entries belong to one authenticated user and one complete typed request.</p></div>
+                <ol class="cache-checks" aria-label="Recorded FreeSQL cache checks">
+                  <li><span class="cache-state cache-miss">MISS</span><p><strong>First Florida request:</strong> fixed SQL ran under both active site grants and returned 13.</p></li>
+                  <li><span class="cache-state cache-hit">HIT</span><p><strong>Same request and grants:</strong> the certified result 13 was reused.</p></li>
+                  <li><span class="cache-state cache-miss">MISS</span><p><strong>Manual source revision bump:</strong> the older entry became ineligible; a fresh run returned 13.</p></li>
+                  <li><span class="cache-state cache-miss">MISS</span><p><strong>One site grant revoked:</strong> a fresh scoped run returned 7 instead of 13.</p></li>
+                </ol>
+                <div class="cache-expiry"><strong>Expiry was tested separately.</strong> A temporary one-second policy on <code>ON_TIME_FULFILLMENT_RATIO</code> produced a <code>MISS</code> after expiry, then was disabled. The ratio values above came from fresh certified queries.</div>
+                <p class="engine-clock"><strong>Illustrative clock:</strong> a 30-minute entry created at 09:00 expires at 09:30. A source revision or access change can invalidate it sooner. The source bump shown here was an administrator action; production ingestion must advance the revision in the same transaction as its data change for immediate invalidation.</p>
+              </section>
+              <p class="result-source">Reproduce the <a href="https://github.com/akshaykamra92/AIDP-hackathon/blob/main/examples/on_time_fulfillment.md" target="_blank" rel="noopener noreferrer">four-table metric <span aria-hidden="true">↗</span></a> and review the <a href="https://github.com/akshaykamra92/AIDP-hackathon/blob/main/docs/QUESTION_ENGINE.md" target="_blank" rel="noopener noreferrer">cache and freshness design <span aria-hidden="true">↗</span></a>. This static replay performs no database operations.</p>
+            </article>
           </div>
         </div>
       </section>
 
       <section class="build-section" aria-labelledby="build-title">
-        <div><p class="section-kicker">PORTABLE BY DESIGN</p><h2 id="build-title">Bring your own governed metrics.</h2><p>Connect an approved Oracle source view, save a versioned metric definition, then query it through the certified explorer. The recorded walkthrough still uses five synthetic workforce metrics. <a href="https://github.com/akshaykamra92/AIDP-hackathon/blob/main/docs/ADOPTION.md" target="_blank" rel="noopener noreferrer">See the adoption steps ↗</a> · <a href="https://github.com/akshaykamra92/AIDP-hackathon/blob/main/docs/SELECT_AI_COMPARISON.md" target="_blank" rel="noopener noreferrer">Compare with Select AI ↗</a></p></div>
+        <div><p class="section-kicker">PORTABLE BY DESIGN</p><h2 id="build-title">Bring your own governed metrics.</h2><p>Connect an approved Oracle source view, save a versioned metric definition, then query it through the certified explorer. The recorded walkthrough uses synthetic workforce and fulfillment data. <a href="https://github.com/akshaykamra92/AIDP-hackathon/blob/main/docs/ADOPTION.md" target="_blank" rel="noopener noreferrer">See the adoption steps ↗</a> · <a href="https://github.com/akshaykamra92/AIDP-hackathon/blob/main/docs/SELECT_AI_COMPARISON.md" target="_blank" rel="noopener noreferrer">Compare with Select AI ↗</a></p></div>
         <a href="https://github.com/akshaykamra92/AIDP-hackathon" target="_blank" rel="noopener noreferrer">Explore the source and setup guide <span aria-hidden="true">↗</span></a>
       </section>
     </main>

@@ -46,7 +46,8 @@ _COMMENT = re.compile(
 REQUIRED_COLUMNS = {
     "WH_REGISTERED_METRIC": frozenset({
         "METRIC_ID", "VERSION", "NAME", "OWNER", "DEFINITION_TEXT", "UNIT",
-        "SOURCE_VIEW", "DATE_COLUMN", "VALUE_COLUMN", "AGGREGATION",
+        "SOURCE_VIEW", "DATE_COLUMN", "VALUE_COLUMN", "NUMERATOR_COLUMN",
+        "DENOMINATOR_COLUMN", "AGGREGATION",
         "LOCATION_COLUMN",
         "ALLOWED_DIMS", "ALLOWED_FILTERS", "STATUS", "CREATED_AT",
         "REVIEWED_AT", "REVIEWED_BY", "REVIEW_NOTE", "CERTIFIED_AT",
@@ -59,12 +60,24 @@ REQUIRED_COLUMNS = {
     }),
 }
 REQUIRED_CONSTRAINTS = frozenset({
-    "WH_RM_PK", "WH_RM_VERSION_CK", "WH_RM_AGG_CK", "WH_RM_STATUS_CK",
-    "WH_RM_VALUE_CK", "WH_RM_DIMS_JSON_CK", "WH_RM_FILTERS_JSON_CK",
+    "WH_RM_PK", "WH_RM_VERSION_CK", "WH_RM_CALC_CK", "WH_RM_STATUS_CK",
+    "WH_RM_DIMS_JSON_CK", "WH_RM_FILTERS_JSON_CK",
     "WH_RM_REVIEWED_CK", "WH_RM_CERTIFIED_CK", "WH_RAL_PK",
     "WH_RAL_METRIC_FK", "WH_RAL_QUERY_JSON_CK", "WH_RAL_BIND_JSON_CK",
     "WH_RAL_ROW_COUNT_CK",
 })
+
+# This is the reviewed replacement for the two legacy aggregate checks. The
+# new constraint is installed before either legacy constraint is dropped, so an
+# interrupted migration never leaves calculation metadata unconstrained.
+_CALC_CHECK = (
+    "CHECK ((AGGREGATION = 'COUNT' AND VALUE_COLUMN IS NULL "
+    "AND NUMERATOR_COLUMN IS NULL AND DENOMINATOR_COLUMN IS NULL) "
+    "OR (AGGREGATION IN ('SUM', 'AVG') AND VALUE_COLUMN IS NOT NULL "
+    "AND NUMERATOR_COLUMN IS NULL AND DENOMINATOR_COLUMN IS NULL) "
+    "OR (AGGREGATION = 'RATIO_SUM' AND VALUE_COLUMN IS NULL "
+    "AND NUMERATOR_COLUMN IS NOT NULL AND DENOMINATOR_COLUMN IS NOT NULL))"
+)
 
 
 def load_catalog_statements() -> list[str]:
@@ -81,6 +94,17 @@ def load_catalog_statements() -> list[str]:
             table_name = create_match.group(1).upper()
             if table_name in created:
                 raise DeploymentError(f"Migration creates {table_name} more than once.")
+            if table_name == "WH_REGISTERED_METRIC" and not all(
+                re.search(pattern, statement, flags=re.IGNORECASE)
+                for pattern in (
+                    r"\bNUMERATOR_COLUMN\s+VARCHAR2\s*\(128\)",
+                    r"\bDENOMINATOR_COLUMN\s+VARCHAR2\s*\(128\)",
+                    r"\bAGGREGATION\s+VARCHAR2\s*\(16\)",
+                    r"\bCONSTRAINT\s+WH_RM_CALC_CK\b",
+                    r"\bAGGREGATION\s*=\s*'RATIO_SUM'",
+                )
+            ):
+                raise DeploymentError("The portable metric schema lacks the reviewed RATIO_SUM contract.")
             created.add(table_name)
             continue
         if _CREATE_INDEX.fullmatch(statement):
@@ -132,7 +156,7 @@ def install_package(connection, spec: str, body: str) -> None:
 
 
 def migrate_existing_columns(connection) -> None:
-    """Add nullable security and view-integrity columns to older catalogs.
+    """Add nullable security, view-integrity, and ratio columns to older catalogs.
 
     Existing certified versions with a missing scope or DDL digest remain
     unavailable until a new version is reviewed and certified.
@@ -140,6 +164,8 @@ def migrate_existing_columns(connection) -> None:
     additions = (
         ("WH_REGISTERED_METRIC", "LOCATION_COLUMN", "VARCHAR2(128)"),
         ("WH_REGISTERED_METRIC", "SOURCE_DDL_SHA256", "VARCHAR2(64)"),
+        ("WH_REGISTERED_METRIC", "NUMERATOR_COLUMN", "VARCHAR2(128)"),
+        ("WH_REGISTERED_METRIC", "DENOMINATOR_COLUMN", "VARCHAR2(128)"),
         ("WH_REGISTERED_ANSWER_LOG", "ASKED_BY", "VARCHAR2(128)"),
     )
     with connection.cursor() as cursor:
@@ -155,6 +181,57 @@ def migrate_existing_columns(connection) -> None:
             if int(cursor.fetchone()[0]) == 0:
                 cursor.execute(f"ALTER TABLE {table} ADD ({column} {data_type})")
                 print(f"Added {table}.{column} to the existing catalog.")
+
+
+def migrate_ratio_sum_contract(connection) -> None:
+    """Widen the enum and replace legacy checks without touching metric rows."""
+
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT COUNT(*) FROM USER_TABLES WHERE TABLE_NAME = 'WH_REGISTERED_METRIC'"
+        )
+        if int(cursor.fetchone()[0]) == 0:
+            return
+        cursor.execute(
+            "SELECT DATA_LENGTH FROM USER_TAB_COLUMNS "
+            "WHERE TABLE_NAME = 'WH_REGISTERED_METRIC' AND COLUMN_NAME = 'AGGREGATION'"
+        )
+        aggregation_column = cursor.fetchone()
+        if aggregation_column is None:
+            raise DeploymentError("The existing metric catalog has no AGGREGATION column.")
+        if int(aggregation_column[0]) < 16:
+            cursor.execute("ALTER TABLE WH_REGISTERED_METRIC MODIFY (AGGREGATION VARCHAR2(16))")
+            print("Widened WH_REGISTERED_METRIC.AGGREGATION for RATIO_SUM.")
+
+        cursor.execute(
+            "SELECT CONSTRAINT_NAME FROM USER_CONSTRAINTS "
+            "WHERE TABLE_NAME = 'WH_REGISTERED_METRIC' "
+            "AND CONSTRAINT_NAME IN ('WH_RM_AGG_CK', 'WH_RM_VALUE_CK', 'WH_RM_CALC_CK')"
+        )
+        present = {str(row[0]) for row in cursor.fetchall()}
+        if "WH_RM_CALC_CK" not in present:
+            cursor.execute(
+                "ALTER TABLE WH_REGISTERED_METRIC ADD CONSTRAINT WH_RM_CALC_CK "
+                + _CALC_CHECK + " ENABLE VALIDATE"
+            )
+            print("Installed the RATIO_SUM calculation constraint.")
+        else:
+            cursor.execute(
+                "SELECT SEARCH_CONDITION_VC, STATUS, VALIDATED FROM USER_CONSTRAINTS "
+                "WHERE TABLE_NAME = 'WH_REGISTERED_METRIC' AND CONSTRAINT_NAME = 'WH_RM_CALC_CK'"
+            )
+            condition_row = cursor.fetchone()
+            if condition_row is None or (str(condition_row[1]), str(condition_row[2])) != ("ENABLED", "VALIDATED"):
+                raise DeploymentError("Existing calculation constraint is not enabled and validated.")
+            condition = str(condition_row[0]).upper()
+            if not all(token in condition for token in (
+                "RATIO_SUM", "NUMERATOR_COLUMN", "DENOMINATOR_COLUMN", "VALUE_COLUMN",
+            )):
+                raise DeploymentError("Existing calculation constraint is incompatible with RATIO_SUM.")
+        for legacy_name in ("WH_RM_AGG_CK", "WH_RM_VALUE_CK"):
+            if legacy_name in present:
+                cursor.execute(f"ALTER TABLE WH_REGISTERED_METRIC DROP CONSTRAINT {legacy_name}")
+                print(f"Replaced legacy {legacy_name} with WH_RM_CALC_CK.")
 
 
 def verify_install(connection) -> None:
@@ -173,15 +250,31 @@ def verify_install(connection) -> None:
                 raise DeploymentError("Portable catalog tables are missing required columns.")
 
             cursor.execute(
-                "SELECT CONSTRAINT_NAME, STATUS, VALIDATED FROM USER_CONSTRAINTS "
+                "SELECT DATA_LENGTH FROM USER_TAB_COLUMNS "
+                "WHERE TABLE_NAME = 'WH_REGISTERED_METRIC' AND COLUMN_NAME = 'AGGREGATION'"
+            )
+            aggregation_column = cursor.fetchone()
+            if aggregation_column is None or int(aggregation_column[0]) < 16:
+                raise DeploymentError("Metric aggregation column is too narrow for RATIO_SUM.")
+
+            cursor.execute(
+                "SELECT CONSTRAINT_NAME, STATUS, VALIDATED, SEARCH_CONDITION_VC FROM USER_CONSTRAINTS "
                 "WHERE TABLE_NAME IN ('WH_REGISTERED_METRIC', 'WH_REGISTERED_ANSWER_LOG')"
             )
             constraints = {
-                str(name): (str(status), str(validated))
-                for name, status, validated in cursor.fetchall()
+                str(name): (str(status), str(validated), condition)
+                for name, status, validated, condition in cursor.fetchall()
             }
-            if any(constraints.get(name) != ("ENABLED", "VALIDATED") for name in REQUIRED_CONSTRAINTS):
+            if any(constraints.get(name, (None, None))[:2] != ("ENABLED", "VALIDATED")
+                   for name in REQUIRED_CONSTRAINTS):
                 raise DeploymentError("Portable catalog constraints are missing or disabled.")
+            if {"WH_RM_AGG_CK", "WH_RM_VALUE_CK"} & constraints.keys():
+                raise DeploymentError("Legacy aggregate checks remain; rerun the catalog installer with --apply.")
+            calculation_check = str(constraints["WH_RM_CALC_CK"][2]).upper()
+            if not all(token in calculation_check for token in (
+                "RATIO_SUM", "NUMERATOR_COLUMN", "DENOMINATOR_COLUMN", "VALUE_COLUMN",
+            )):
+                raise DeploymentError("Portable catalog calculation constraint is incompatible.")
 
             cursor.execute(
                 "SELECT UNIQUENESS, STATUS FROM USER_INDEXES "
@@ -225,8 +318,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         try:
             if args.apply:
                 migrate_existing_columns(connection)
+                migrate_ratio_sum_contract(connection)
                 _execute_stage(connection, "portable catalog", statements)
                 migrate_existing_columns(connection)
+                migrate_ratio_sum_contract(connection)
                 install_package(connection, spec, body)
             verify_install(connection)
         finally:
