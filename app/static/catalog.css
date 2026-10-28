@@ -57,11 +57,20 @@ h1 span { color: var(--teal); }
 .feedback { margin: 23px 0 0; color: var(--muted); font-size: 12px; }
 .feedback.is-error, .form-feedback { color: #9c451e; }
 .feedback.is-empty { padding: 16px 18px; border: 1px solid #e6e9e2; border-radius: 9px; background: #fafbf8; }
+.access-form { display: grid; gap: 7px; margin-top: 23px; padding: 17px; border: 1px solid #d5e7da; border-radius: 10px; background: #f6fbf6; }
+.access-form > label { color: #38534e; font-size: 11px; font-weight: 800; }
+.access-input-row { display: flex; gap: 8px; }
+.access-input-row input { flex: 1; min-width: 0; }
+.access-input-row button { flex: 0 0 auto; padding-inline: 16px; }
+.access-form .field-hint { margin: 0; }
+.access-form .form-feedback { margin: 3px 0 0; }
+.access-summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 23px; padding: 13px 15px; border: 1px solid #cfe5d8; border-radius: 10px; background: #f0f8f2; color: #345d4e; font-size: 11px; font-weight: 700; }
+.access-summary .secondary-button { flex: 0 0 auto; }
 #metric-form { margin-top: 22px; }
 .field { display: grid; gap: 6px; }
 .field label, .choice-fieldset legend { color: #38534e; font-size: 11px; font-weight: 800; }
 .field label span, .choice-fieldset legend span { color: #84958d; font-weight: 500; }
-select, input[type="date"], input[type="text"] { width: 100%; min-height: 43px; padding: 10px 12px; border: 1px solid #ccdcd3; border-radius: 8px; background: #fbfdfb; color: var(--ink); font-size: 13px; }
+select, input[type="date"], input[type="text"], input[type="password"] { width: 100%; min-height: 43px; padding: 10px 12px; border: 1px solid #ccdcd3; border-radius: 8px; background: #fbfdfb; color: var(--ink); font-size: 13px; }
 select:focus, input:focus { border-color: var(--teal); outline: 3px solid #d5ece2; }
 .period-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 13px; margin-top: 18px; }
 .field-hint { margin: 8px 0 0; color: #84958d; font-size: 10px; line-height: 1.5; }
@@ -148,6 +157,7 @@ td:last-child { color: var(--teal-dark); font-weight: 800; }
   .query-panel, .definition-panel { padding: 24px 20px; }
   .panel-heading h2, .definition-panel h2 { font-size: 20px; }
   .period-grid { grid-template-columns: 1fr; }
+  .access-input-row, .access-summary { align-items: stretch; flex-direction: column; }
   .filter-row { grid-template-columns: 1fr auto; }
   .filter-row input { grid-column: 1 / -1; grid-row: 2; }
   .filter-row .remove-filter { grid-column: 2; grid-row: 1; }

@@ -38,7 +38,7 @@ _CREATE_INDEX = re.compile(
 )
 _COMMENT = re.compile(
     r"\ACOMMENT\s+ON\s+(TABLE|COLUMN)\s+"
-    r"(WH_REGISTERED_METRIC|WH_REGISTERED_ANSWER_LOG)(?:\.([A-Z_]+))?\s+"
+    r"(WH_REGISTERED_METRIC|WH_REGISTERED_ANSWER_LOG)(?:\.([A-Z][A-Z0-9_$#]*))?\s+"
     r"IS\s+'(?:''|[^'])*'\Z",
     re.IGNORECASE | re.DOTALL,
 )
@@ -47,13 +47,15 @@ REQUIRED_COLUMNS = {
     "WH_REGISTERED_METRIC": frozenset({
         "METRIC_ID", "VERSION", "NAME", "OWNER", "DEFINITION_TEXT", "UNIT",
         "SOURCE_VIEW", "DATE_COLUMN", "VALUE_COLUMN", "AGGREGATION",
+        "LOCATION_COLUMN",
         "ALLOWED_DIMS", "ALLOWED_FILTERS", "STATUS", "CREATED_AT",
         "REVIEWED_AT", "REVIEWED_BY", "REVIEW_NOTE", "CERTIFIED_AT",
-        "CERTIFIED_BY", "SOURCE_DDL_AT",
+        "CERTIFIED_BY", "SOURCE_DDL_AT", "SOURCE_DDL_SHA256",
     }),
     "WH_REGISTERED_ANSWER_LOG": frozenset({
         "ID", "ASKED_AT", "METRIC_ID", "METRIC_VERSION", "QUERY_JSON",
         "COMPILED_SQL", "BIND_JSON", "ROW_COUNT",
+        "ASKED_BY",
     }),
 }
 REQUIRED_CONSTRAINTS = frozenset({
@@ -129,6 +131,32 @@ def install_package(connection, spec: str, body: str) -> None:
     print("Applied governance package specification and body.")
 
 
+def migrate_existing_columns(connection) -> None:
+    """Add nullable security and view-integrity columns to older catalogs.
+
+    Existing certified versions with a missing scope or DDL digest remain
+    unavailable until a new version is reviewed and certified.
+    """
+    additions = (
+        ("WH_REGISTERED_METRIC", "LOCATION_COLUMN", "VARCHAR2(128)"),
+        ("WH_REGISTERED_METRIC", "SOURCE_DDL_SHA256", "VARCHAR2(64)"),
+        ("WH_REGISTERED_ANSWER_LOG", "ASKED_BY", "VARCHAR2(128)"),
+    )
+    with connection.cursor() as cursor:
+        for table, column, data_type in additions:
+            cursor.execute("SELECT COUNT(*) FROM USER_TABLES WHERE TABLE_NAME = :table_name", {"table_name": table})
+            if int(cursor.fetchone()[0]) == 0:
+                continue
+            cursor.execute(
+                "SELECT COUNT(*) FROM USER_TAB_COLUMNS WHERE TABLE_NAME = :table_name "
+                "AND COLUMN_NAME = :column_name",
+                {"table_name": table, "column_name": column},
+            )
+            if int(cursor.fetchone()[0]) == 0:
+                cursor.execute(f"ALTER TABLE {table} ADD ({column} {data_type})")
+                print(f"Added {table}.{column} to the existing catalog.")
+
+
 def verify_install(connection) -> None:
     """Catch an incompatible pre-existing table or an invalid compiled package."""
 
@@ -196,7 +224,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         connection = _connect()
         try:
             if args.apply:
+                migrate_existing_columns(connection)
                 _execute_stage(connection, "portable catalog", statements)
+                migrate_existing_columns(connection)
                 install_package(connection, spec, body)
             verify_install(connection)
         finally:

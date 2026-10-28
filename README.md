@@ -1,132 +1,103 @@
 # Ask the Warehouse
 
-**A number is useful only when its definition is clear.** Ask the Warehouse returns certified metric results from Oracle AI Database 26ai with the definition, owner, version, compiled SQL, bind values, and result count. Its synthetic natural-language demo also shows data coverage and offers a certification request when a question cannot be mapped. Its portable explorer queries registered definitions over an organization's approved Oracle views.
+**Ask for a number. See its meaning and who can see it.** Ask the Warehouse combines Oracle AI Database with a versioned metric catalog, reviewed source views, location-scoped users, bound SQL, and an answer log. An optional Oracle Select AI path drafts SQL for an administrator to inspect; it never executes that draft or turns it into a certified answer.
 
-The included workforce walkthrough uses **synthetic data only**. A separate portable path lets another organization register versioned metric meanings in its own Oracle schema and query approved views without importing the demo records.
+The repository contains only **synthetic** records. Its portable path connects to an adopter's existing Oracle schema through reviewed `WH_` adapter views; it does not import the demo records into that schema.
 
-## Demo
+## Demo and repository
 
-The [GitHub Pages demo](https://akshaykamra92.github.io/AIDP-hackathon/) is a durable **static replay** of three synthetic scenarios. It makes no database calls and does not save certification requests. The live FreeSQL-backed app was also checked in a browser through a temporary public tunnel: **3/3 workflows passed** (certified Florida turnover, definition comparison, and unsupported burnout metric with a saved certification request). The tunnel address is temporary; use the local run steps below for a repeatable live demo.
+- [Recorded browser demo](https://akshaykamra92.github.io/AIDP-hackathon/) — durable static replay of three synthetic scenarios. It makes no database calls and saves no requests.
+- [73-second showcase video](https://akshaykamra92.github.io/AIDP-hackathon/#video) — narrated, captioned overview of the Oracle catalog, approval flow, location access, and answer evidence. The [MP4](docs/media/ask-the-warehouse-showcase.mp4) is included in this repository.
+- [Public GitHub repository](https://github.com/akshaykamra92/AIDP-hackathon) — application, Oracle migrations and packages, synthetic seed, tests, and setup guides.
+- [Three-minute presenter script](docs/DEMO.md) — the live synthetic walkthrough. The FreeSQL-backed app has also been exercised through a temporary tunnel; run it locally for a repeatable live demo.
 
-## Two paths
+## Choose a path
 
-| Mode | What it serves | Database setup |
+| Mode | Question interface | Data and access |
 | --- | --- | --- |
-| `APP_MODE=demo` (default) | The synthetic natural-language walkthrough and five fixed workforce metrics. | Use the disposable `WH_` demo schema and seed. |
-| `APP_MODE=portable` | A certified metric explorer and structured query API for an organization's own Oracle data. | Install the non-destructive registered catalog, add reviewed `WH_` source views, and register metric versions. |
+| `APP_MODE=demo` (default) | A conservative natural-language parser covers five fixed workforce metrics. Unsupported qualifiers produce a refusal and certification request. | Disposable synthetic tables and fixed reviewed SQL. |
+| `APP_MODE=portable` | A structured explorer and API query certified `COUNT`, `SUM`, or `AVG` metrics registered in Oracle. | Your approved `WH_` views; bearer-token users and active location grants are required for every metric read. |
 
-The portable metric's name, meaning, owner, version, source-view contract, allowlists, and status are saved in `WH_REGISTERED_METRIC` in Oracle. An administrator creates a draft, reviews the view, and certifies it with a different approver. The browser lists only certified versions. See the [adoption guide](docs/ADOPTION.md) for the exact commands and deployment limits.
+Portable metric meanings, owners, versions, source contracts, review records, and certification states live in `WH_REGISTERED_METRIC`. Review records a SHA-256 fingerprint of the complete source-view DDL, and queries reject a changed view. `WH_METRIC_GOVERNANCE` moves a new version through **DRAFT → REVIEWED → CERTIFIED**, with a different authenticated administrator approving it. `WH_SECURITY_ADMIN` manages users and location grants. Each certified query checks those grants inside the SQL statement, then records its version, SQL, bind values, user ID, and row count in `WH_REGISTERED_ANSWER_LOG`.
 
-## What happens in the synthetic question flow
+| Output | How it is produced | What the user receives |
+| --- | --- | --- |
+| Certified metric | An approved definition and a fixed compiler over a reviewed `WH_` view; dates, filters, and authenticated user ID are binds. | A scoped number, definition, version, SQL, binds, and provenance. |
+| Select AI preview | Optional `DBMS_CLOUD_AI.GENERATE(..., action => 'showsql')`, available only to an authenticated portable administrator. | Generated SQL text labeled exploratory; **no execution and no certified number**. |
 
-1. A conservative question parser maps supported phrasing to a metric, allowed dimensions and filters, and a half-open reporting period `[start, end)`.
-2. The server checks that the metric is `CERTIFIED` and that every requested dimension, filter, and date is allowed. An unmapped qualifier causes a refusal; it is never silently ignored.
-3. A fixed, reviewed SQL statement is selected by metric ID and executed with bind variables. The question does not become SQL. The metric catalog holds the approved metadata and the SQL compiler key; the executable statements live in application code.
-4. The result and its query provenance are recorded in `WH_ANSWER_LOG` and returned to the browser.
-5. An unsupported metric returns nearby certified choices and a certification button, which writes an `OPEN` row to `WH_METRIC_REQUEST`.
+The Select AI provider profile is **not configured in the included FreeSQL demo**. The integration is disabled by default and has explicit [setup steps](docs/SELECT_AI_SETUP.md). See the [side-by-side comparison](docs/SELECT_AI_COMPARISON.md) for why an approved metric answer differs from generated SQL.
 
-The runtime does **not** call Select AI. FreeSQL exposed the `DBMS_CLOUD_AI` package, but no provider credential or Select AI profile was configured for this demo. The unsupported-question path therefore refuses to invent a number. The comparison shown in the UI is a separate, fixed, read-only illustrative calculation, clearly labeled as an ad hoc interpretation.
+## Run the synthetic demo
 
-For a question-by-question comparison with Oracle Select AI, see [`docs/SELECT_AI_COMPARISON.md`](docs/SELECT_AI_COMPARISON.md).
-
-## Run the synthetic demo locally
-
-You need Python 3.10 or newer and access to an Oracle AI Database 26ai schema. The app uses `python-oracledb` in thin mode.
+You need Python 3.10 or newer and an Oracle AI Database 26ai schema. Python uses `python-oracledb` thin mode.
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -r requirements.txt
-```
-
-Copy the environment template, then fill it locally:
-
-```bash
 cp .env.example .env
 ```
 
-Set `ORACLE_USER` and `ORACLE_PASSWORD` for the same schema where you run the SQL scripts. Copy `ORACLE_DSN` from FreeSQL's **Connect to the Database → Python** panel; its hosted form is `tcps://db.freesql.com:2484/<your-service-name>`. Python thin mode connects without wallet files. The template includes `DEMO_AS_OF_DATE=2026-10-28`, which pins “last quarter” to Q3 2026 for the repeatable hackathon demo. Keep credentials out of source control and terminal output.
-
-Parse the reviewed SQL scripts locally before changing the database:
+Set `ORACLE_USER`, `ORACLE_PASSWORD`, and `ORACLE_DSN` in the local, git-ignored `.env`. FreeSQL shows the DSN under **Connect to the Database → Python**; a hosted DSN has the form `tcps://db.freesql.com:2484/<your-service-name>`. Set `APP_MODE=demo`. The template's `DEMO_AS_OF_DATE=2026-10-28` pins “last quarter” to Q3 2026 for the replay.
 
 ```bash
 python scripts/deploy.py --dry-run
-```
-
-To reset the eight synthetic demo tables, load their seed, and check expected results through the configured Python connection, run:
-
-```bash
 python scripts/deploy.py --apply
-```
-
-For a read-only check after deployment, run `python scripts/deploy.py --verify-only`. This check allows answer logs and certification requests created by the app while still checking the synthetic seed tables exactly. The runner accepts only the three repository-owned SQL files and does not print credentials. You can also run these files **one at a time, as scripts** in a FreeSQL worksheet or SQLcl session connected to the same schema:
-
-1. [`sql/01_schema.sql`](sql/01_schema.sql) — create the `WH_` tables, comments, and 26ai annotations.
-2. [`sql/02_seed.sql`](sql/02_seed.sql) — load deterministic synthetic records and five certified metrics.
-3. [`sql/03_verify.sql`](sql/03_verify.sql) — run read-only row-count and Florida turnover checks.
-
-`01_schema.sql` resets only the eight demo `WH_` tables, so rerunning it removes prior synthetic rows and demo answer/request logs. `02_seed.sql` can be rerun independently to reset those demo rows. Neither script initializes the separate portable catalog. The verification script should show 17 approved Florida Q3 2026 exits after excluding 4 internal transfers, for a certified turnover rate of **1.89%**, versus **2.33%** when transfers are included. Database design and expected row counts are documented in [`docs/DATABASE.md`](docs/DATABASE.md).
-
-Then start the app:
-
-```bash
+python scripts/deploy.py --verify-only
 uvicorn app.main:app --reload
 ```
 
-Open `http://127.0.0.1:8000/`. The header reports whether the database connection is available. The UI still loads without connection settings, but `/ask` returns a clear service error until they are supplied.
+Open `http://127.0.0.1:8000/`. `deploy.py --apply` **resets the eight synthetic demo tables**; run it only in a disposable demo schema. The seed contains five certified demo definitions and produces **1.89%** Florida Q3 2026 turnover under the approved definition versus **2.33%** in a separately labeled illustrative calculation that includes internal transfers. Neither figure is a Select AI result. See the [database design](docs/DATABASE.md) and [presenter script](docs/DEMO.md).
 
-For your own Oracle data, **do not run the demo reset**. Set `APP_MODE=portable`, run `python scripts/install_catalog.py --apply`, create a same-schema `WH_` source view, register its metric through `scripts/metricctl.py`, then start the same app. The full [portable setup and metric lifecycle](docs/ADOPTION.md) explains the view, manifest, review, certification, and query steps. This path currently requires Oracle AI Database 26ai and uses a structured metric picker, not open-ended natural-language SQL.
+## Connect your own Oracle data
+
+Set `APP_MODE=portable` in `.env`, then install the non-destructive catalog and security layers:
+
+```bash
+python scripts/install_catalog.py --dry-run
+python scripts/install_catalog.py --apply
+python scripts/install_security.py --dry-run
+python scripts/install_security.py --apply
+```
+
+Create a first administrator with `scripts/userctl.py bootstrap`, register location keys, grant users only the locations they may query, and create a second administrator for metric approval. Expose source facts through a same-schema `WH_` view with a **text `LOCATION_KEY` per source row**. Save a typed JSON metric manifest and use `scripts/metricctl.py` to draft, preview, review, and certify it. CLI tokens are written once to private files under the git-ignored `work/` directory and are never printed.
+
+Follow the full [adoption workflow](docs/ADOPTION.md), [location security guide](docs/SECURITY.md), and [schema and calculation extension guide](docs/EXTENDING.md). Existing catalog installations can be migrated without deleting their metrics; old versions lacking a location column or reviewed view fingerprint remain unavailable to portable readers until a new scoped version is certified. **Do not run `deploy.py --apply` against your organization's schema.**
+
+Portable mode currently uses a structured metric picker and query API. It does not translate arbitrary natural-language questions into certified SQL. Only approved metric and filter fields can affect a certified answer.
 
 ## Run in Docker
 
-After configuring the local `.env` and setting up the database for your selected mode, build and start the container:
+After setting up the chosen database path and local `.env`:
 
 ```bash
 docker compose up --build -d
 ```
 
-Open `http://127.0.0.1:8000/` by default. Set `APP_PORT` in your shell or local `.env` to change the host port. The container runs the app and checks `/health`; it does **not** run schema scripts or move source data. Run `docker compose down` to stop it. Docker Desktop was paused during development, so the Compose configuration passed validation but the image still needs an end-to-end build and run on a Docker host.
+Open `http://127.0.0.1:8000/` by default; set `APP_PORT` to change the host port. The container runs the app and checks `/health`; it does not create database objects, load rows, or receive `SELECT_AI_API_KEY`. Compose configuration has been validated; an end-to-end image build still needs a Docker host because Docker Desktop was paused during development.
 
-## Try the demo
+## API
 
-1. Ask **“What was our turnover in Florida last quarter?”** The certified definition excludes internal transfers. Open **Show SQL** to inspect the reviewed query and bound date/state values.
-2. Click **See the difference**. The comparison includes internal transfers in an illustrative ad hoc numerator while keeping the same denominator. It is not a Select AI response.
-3. Ask **“What's our burnout rate?”** The app refuses because no certified burnout metric exists. Click **Request certification** to create a review request.
+| Mode | Route | Purpose |
+| --- | --- | --- |
+| Both | `GET /health` | Database and setup status. Portable mode reports catalog, security, and bearer authentication readiness. |
+| Demo | `POST /ask` | Answer one of five fixed synthetic metrics or return an exploratory refusal. |
+| Demo | `POST /certification-request` | Save an unsupported synthetic question for review. |
+| Demo | `GET /demo/turnover-comparison` | Fixed Q3 2026 Florida definition comparison. |
+| Portable | `GET /catalog` | Public sign-in page for the metric explorer. The token stays in page memory. |
+| Portable | `GET /me`, `GET /metrics` | Authenticated identity/location summary and certified metric definitions eligible for scoped queries. |
+| Portable | `POST /metric-query` | Authenticated, location-scoped certified metric query. |
+| Portable, opt-in | `POST /select-ai/preview` | Administrator-only, display-only generated SQL. Absent when disabled. |
 
-The full presenter script is in [`docs/DEMO.md`](docs/DEMO.md).
+The portable API requires `Authorization: Bearer <user-token>` for protected routes. A query supplies the registered metric ID, inclusive first-of-month `start_date`, exclusive first-of-month `end_date`, and only approved dimensions and filters. The authenticated identity comes from the token, never from the request body. See the [request example](docs/ADOPTION.md#5-query-a-certified-version).
 
-## Verify
-
-The parser, approved SQL compiler, service behavior, and golden question set can be checked without database credentials:
+## Verify and deployment boundary
 
 ```bash
 python3 -m unittest discover -s tests -v
 python3 tests/run_golden.py
 ```
 
-The golden runner prints intent accuracy, refusal correctness, and whether paraphrases compile to identical SQL and binds using **synthetic metadata**. These are parser/compiler checks, not measured live-database accuracy.
+The golden runner checks parser and compiler behavior on synthetic metadata. A live database check also needs the configured Oracle connection and `sql/03_verify.sql`. The portable security path was exercised against FreeSQL with two users on different locations; a Florida user granted two sites saw 13 Q3 filled requisitions, while an Alabama user granted one site saw 5. Cross-location queries returned no data, and reactivating a disabled location did not restore a revoked grant.
 
-After loading the schema, run [`sql/03_verify.sql`](sql/03_verify.sql) in the FreeSQL worksheet to check row counts, data coverage, and the Florida definition contrast. A live UI check requires the local `.env` connection settings.
-
-## API
-
-| Route | Purpose |
-| --- | --- |
-| `GET /` | One-page browser interface |
-| `GET /health` | Service and database connection status |
-| `POST /ask` | Answer from a certified metric or return an exploratory refusal |
-| `POST /certification-request` | Log a request for an unsupported metric |
-| `GET /demo/turnover-comparison` | Fixed Q3 2026 Florida definition comparison |
-| `GET /catalog` | Registered metric explorer |
-| `GET /metrics` | List certified registered metric versions |
-| `POST /metric-query` | Query a certified registered metric using approved dimensions and bound filters |
-
-`POST /ask` accepts `{"question":"What was our turnover in Florida last quarter?"}`. Certified responses include `tier: "CERTIFIED"`, `metric`, `intent`, `rows`, `summary`, `sql`, `binds`, `freshness`, and `warnings`. Unsupported questions return `tier: "EXPLORATORY"`, a refusal message, unmapped terms, and nearest certified metrics; they do not run generated SQL.
-
-In portable mode, the synthetic `/ask`, request, and comparison routes are disabled. `POST /metric-query` accepts a registered metric ID, first-of-month `start_date` and exclusive `end_date`, plus allowlisted `dimensions` and `filters`; see the [request example](docs/ADOPTION.md#4-query-a-certified-version). Public routes cannot draft, review, or certify a metric.
-
-## Design boundaries
-
-The five seeded metrics are headcount, turnover rate, voluntary turnover rate, median time to fill, and internal fill rate. The parser and approved SQL are intentionally narrow so a new qualifier cannot quietly change an official number. Date predicates use half-open ranges, and the UI displays the final included date for clarity.
-
-The seed does not record an ingestion timestamp, so the app reports the covered period and says ingestion freshness is unavailable. The demo request button only logs a request; the portable path has a separate administrator CLI for draft, review, and certification. This prototype has no sign-in, per-user row policy, or BI connector. The fixed comparison illustrates definition ambiguity; it is not a live model answer. For production, add authentication, source access controls, role separation, monitoring, and organization-specific data mapping.
+This remains a deployable **prototype** using one Oracle schema owner for administration and runtime. The application enforces bearer identity and location predicates; the schema owner still has direct table privileges. For sensitive deployment, use HTTPS and enterprise identity management, split Oracle runtime and administration accounts, restrict source privileges, and test database row policies as defense in depth. See [SECURITY.md](docs/SECURITY.md) for the exact boundary.

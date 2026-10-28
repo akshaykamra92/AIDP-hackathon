@@ -17,6 +17,7 @@ def manifest(**changes):
         "unit": "orders",
         "source_view": "WH_ORDER_METRIC_SOURCE",
         "date_column": "FILLED_DATE",
+        "location_column": "LOCATION_KEY",
         "value_column": None,
         "aggregation": "COUNT",
         "allowed_dims": ["REGION", "CHANNEL"],
@@ -56,6 +57,7 @@ class RegisteredMetricTests(unittest.TestCase):
         self.assertEqual(2, approved.version)
         self.assertEqual(date(2026, 10, 28), approved.source_ddl_at)
         self.assertEqual("orders", approved.public_dict()["unit"])
+        self.assertEqual("LOCATION_KEY", approved.public_dict()["location_column"])
         self.assertEqual(["REGION", "CHANNEL"], approved.public_dict()["allowed_dims"])
 
     def test_count_compiles_fixed_sql_and_binds_hostile_filter(self):
@@ -65,9 +67,9 @@ class RegisteredMetricTests(unittest.TestCase):
             ["REGION"], {"REGION": hostile},
         )
         self.assertEqual(
-            "SELECT REGION, COUNT(*) AS value FROM WH_ORDER_METRIC_SOURCE "
-            "WHERE FILLED_DATE >= :start_date AND FILLED_DATE < :end_date "
-            "AND REGION = :f0 GROUP BY REGION HAVING COUNT(*) > 0 ORDER BY REGION",
+            "SELECT src.REGION, COUNT(*) AS value FROM WH_ORDER_METRIC_SOURCE src "
+            "WHERE src.FILLED_DATE >= :start_date AND src.FILLED_DATE < :end_date "
+            "AND src.REGION = :f0 GROUP BY src.REGION HAVING COUNT(*) > 0 ORDER BY src.REGION",
             query.sql,
         )
         self.assertNotIn(hostile, query.sql)
@@ -84,8 +86,8 @@ class RegisteredMetricTests(unittest.TestCase):
                 query = compile_registered(
                     metric, date(2026, 1, 1), date(2026, 2, 1), (), {}
                 )
-                self.assertIn(f"{aggregation}(AMOUNT) AS value", query.sql)
-                self.assertIn("HAVING COUNT(AMOUNT) > 0", query.sql)
+                self.assertIn(f"{aggregation}(src.AMOUNT) AS value", query.sql)
+                self.assertIn("HAVING COUNT(src.AMOUNT) > 0", query.sql)
                 self.assertEqual(("value",), query.columns)
                 self.assertNotIn("GROUP BY", query.sql)
 
@@ -127,6 +129,7 @@ class RegisteredMetricTests(unittest.TestCase):
             (manifest(source_view="HR.ORDERS"), "INVALID_IDENTIFIER"),
             (manifest(source_view="OTHER_VIEW"), "INVALID_SOURCE_VIEW"),
             (manifest(date_column="FILLED_DATE DESC"), "INVALID_IDENTIFIER"),
+            (manifest(location_column="LOCATION_KEY OR 1=1"), "INVALID_IDENTIFIER"),
             (manifest(allowed_dims=["REGION", "REGION"]), "INVALID_CATALOG"),
             (manifest(allowed_dims=["VALUE"]), "INVALID_CATALOG"),
             (manifest(aggregation="MAX"), "INVALID_AGGREGATION"),
@@ -137,6 +140,45 @@ class RegisteredMetricTests(unittest.TestCase):
             with self.subTest(code=code, item=item), self.assertRaises(CompileError) as caught:
                 RegisteredMetric.from_manifest(item, 1)
             self.assertEqual(code, caught.exception.code)
+
+    def test_new_manifest_requires_location_and_legacy_row_cannot_be_scoped(self):
+        missing_scope = manifest()
+        del missing_scope["location_column"]
+        with self.assertRaises(CompileError) as raised:
+            RegisteredMetric.from_manifest(missing_scope, 1)
+        self.assertEqual("LOCATION_SCOPE_REQUIRED", raised.exception.code)
+
+        legacy = RegisteredMetric.from_row({
+            **{key.upper(): value for key, value in missing_scope.items()},
+            "VERSION": 1,
+            "STATUS": "CERTIFIED",
+        })
+        self.assertIsNone(legacy.location_column)
+        with self.assertRaises(CompileError) as raised:
+            compile_registered(
+                legacy, date(2026, 7, 1), date(2026, 10, 1), (), {},
+                scope_user_id="reader-1",
+            )
+        self.assertEqual("LOCATION_SCOPE_REQUIRED", raised.exception.code)
+
+    def test_scoped_sql_checks_live_grants_in_the_same_select(self):
+        user_id = "reader' OR 1=1 --"
+        query = compile_registered(
+            registered(), date(2026, 7, 1), date(2026, 10, 1),
+            ["REGION"], {"REGION": "WEST"}, scope_user_id=user_id,
+        )
+        self.assertEqual(user_id, query.binds["auth_user_id"])
+        self.assertNotIn(user_id, query.sql)
+        self.assertIn("FROM WH_USER_LOCATION acl", query.sql)
+        self.assertIn("JOIN WH_SEC_LOCATION loc", query.sql)
+        self.assertIn("JOIN WH_APP_USER usr", query.sql)
+        self.assertIn("acl.USER_ID = :auth_user_id", query.sql)
+        self.assertIn("usr.STATUS = 'ACTIVE'", query.sql)
+        self.assertIn("acl.STATUS = 'ACTIVE'", query.sql)
+        self.assertIn("loc.STATUS = 'ACTIVE'", query.sql)
+        self.assertIn("acl.LOCATION_KEY = src.LOCATION_KEY", query.sql)
+        self.assertIn("src.REGION = :f0", query.sql)
+        self.assertIn("src.FILLED_DATE < :end_date", query.sql)
 
     def test_fractional_version_is_not_silently_truncated(self):
         with self.assertRaises(CompileError) as caught:

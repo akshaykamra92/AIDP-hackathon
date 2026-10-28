@@ -15,14 +15,16 @@ except ImportError:  # The pure-Python tests do not require optional app depende
 if load_dotenv is not None:
     load_dotenv()
 
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from app.db import DatabaseUnavailable
+from app.db import DatabaseUnavailable, OracleRepository
 from app.metrics import CompileError
 from app.registered_repo import CatalogError, RegisteredMetricRepository
+from app.security import Principal, SecurityRepository
+from app.select_ai import SelectAIError, SelectAIExplorer
 from app.service import WarehouseService
 
 
@@ -43,6 +45,10 @@ class MetricQueryRequest(BaseModel):
     filters: Dict[str, Any] = Field(default_factory=dict)
 
 
+class SelectAIPreviewRequest(BaseModel):
+    question: str = Field(min_length=1, max_length=1000)
+
+
 class AppStaticFiles(StaticFiles):
     """Keep demo assets out of the portable application's public routes."""
 
@@ -59,7 +65,10 @@ class AppStaticFiles(StaticFiles):
 def create_app(
     service: Optional[WarehouseService] = None,
     registered_repository: Optional[RegisteredMetricRepository] = None,
+    security_repository: Optional[SecurityRepository] = None,
+    select_ai_explorer: Optional[SelectAIExplorer] = None,
     app_mode: Optional[str] = None,
+    select_ai_enabled: Optional[bool] = None,
 ) -> FastAPI:
     app = FastAPI(title="Ask the Warehouse", version="0.1.0")
     mode = (app_mode or os.getenv("APP_MODE", "demo")).strip().lower()
@@ -67,6 +76,16 @@ def create_app(
         raise ValueError("APP_MODE must be demo or portable.")
     warehouse = (service or WarehouseService.from_environment()) if mode == "demo" else service
     registry = registered_repository or RegisteredMetricRepository()
+    security = security_repository or SecurityRepository(getattr(registry, "database", None))
+    ai_enabled = (
+        select_ai_enabled if select_ai_enabled is not None
+        else os.getenv("SELECT_AI_ENABLED", "false").strip().lower() == "true"
+    )
+    ai_explorer = select_ai_explorer or SelectAIExplorer(
+        getattr(registry, "database", None) or OracleRepository(), enabled=ai_enabled
+    )
+    app.state.mode = mode
+    app.state.location_auth = mode == "portable"
     static_dir = Path(__file__).resolve().parent / "static"
     if static_dir.exists():
         allowed = {"catalog.css", "catalog.js"} if mode == "portable" else None
@@ -79,13 +98,6 @@ def create_app(
             return FileResponse(str(index_file))
         return {"name": "Ask the Warehouse", "docs": "/docs"}
 
-    @app.get("/catalog")
-    def catalog_page():
-        page = static_dir / "catalog.html"
-        if page.exists():
-            return FileResponse(str(page))
-        raise HTTPException(status_code=404, detail="Metric explorer page is unavailable.")
-
     @app.get("/health")
     def health():
         try:
@@ -95,9 +107,20 @@ def create_app(
                         "status": "degraded",
                         "database": "connected",
                         "catalog": "missing",
+                        "security": "unknown",
+                        "auth": "bearer",
                         "message": "Run scripts/install_catalog.py --apply before serving portable metrics.",
                     }
-                return {"status": "ok", "database": "connected", "catalog": "ready"}
+                if not security.security_ready():
+                    return {
+                        "status": "degraded",
+                        "database": "connected",
+                        "catalog": "ready",
+                        "security": "missing",
+                        "auth": "bearer",
+                        "message": "Run scripts/install_security.py --apply before serving portable metrics.",
+                    }
+                return {"status": "ok", "database": "connected", "catalog": "ready", "security": "ready", "auth": "bearer"}
             assert warehouse is not None
             if not warehouse.repository.health():
                 raise DatabaseUnavailable("Oracle health check did not return a result.")
@@ -132,29 +155,88 @@ def create_app(
             except DatabaseUnavailable as exc:
                 raise HTTPException(status_code=503, detail=str(exc)) from exc
 
-    @app.get("/metrics")
-    def registered_metrics():
-        try:
-            return {"metrics": [metric.public_dict() for metric in registry.list_certified()]}
-        except CatalogError as exc:
-            raise HTTPException(status_code=503, detail={"code": exc.code, "message": str(exc)}) from exc
-        except DatabaseUnavailable as exc:
-            raise HTTPException(status_code=503, detail=str(exc)) from exc
+    if mode == "portable":
+        @app.get("/catalog")
+        def catalog_page():
+            page = static_dir / "catalog.html"
+            if page.exists():
+                return FileResponse(str(page))
+            raise HTTPException(status_code=404, detail="Metric explorer page is unavailable.")
 
-    @app.post("/metric-query")
-    def metric_query(payload: MetricQueryRequest):
-        try:
-            return registry.query(
-                payload.metric_id, payload.start_date, payload.end_date,
-                payload.dimensions, payload.filters,
-            )
-        except CatalogError as exc:
-            status = 503 if exc.code == "CATALOG_NOT_INSTALLED" else 409 if exc.code == "SOURCE_CHANGED" else 422
-            raise HTTPException(status_code=status, detail={"code": exc.code, "message": str(exc)}) from exc
-        except CompileError as exc:
-            raise HTTPException(status_code=422, detail={"code": exc.code, "message": str(exc)}) from exc
-        except DatabaseUnavailable as exc:
-            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        def require_principal(request: Request) -> Principal:
+            authorization = request.headers.getlist("authorization")
+            if len(authorization) != 1:
+                raise HTTPException(status_code=401, detail="Bearer token required.", headers={"WWW-Authenticate": "Bearer"})
+            parts = authorization[0].split()
+            if len(parts) != 2 or parts[0].lower() != "bearer":
+                raise HTTPException(status_code=401, detail="Bearer token required.", headers={"WWW-Authenticate": "Bearer"})
+            try:
+                principal = security.authenticate_token(parts[1])
+            except DatabaseUnavailable as exc:
+                raise HTTPException(status_code=503, detail="Application identity store is unavailable.") from exc
+            if principal is None:
+                raise HTTPException(status_code=401, detail="Invalid or revoked bearer token.", headers={"WWW-Authenticate": "Bearer"})
+            return principal
+
+        def require_admin(principal: Principal = Depends(require_principal)) -> Principal:
+            if principal.role != "ADMIN":
+                raise HTTPException(status_code=403, detail="Administrator access is required for Select AI preview.")
+            return principal
+
+        @app.get("/me")
+        def whoami(principal: Principal = Depends(require_principal)):
+            try:
+                locations = security.active_locations(principal.user_id)
+            except DatabaseUnavailable as exc:
+                raise HTTPException(status_code=503, detail="Location access store is unavailable.") from exc
+            return {
+                "user_id": principal.user_id,
+                "display_name": principal.display_name,
+                "role": principal.role,
+                "locations": locations,
+            }
+
+        @app.get("/metrics")
+        def registered_metrics(principal: Principal = Depends(require_principal)):
+            try:
+                return {"metrics": [metric.public_dict() for metric in registry.list_certified(scoped_only=True)]}
+            except CatalogError as exc:
+                raise HTTPException(status_code=503, detail={"code": exc.code, "message": str(exc)}) from exc
+            except DatabaseUnavailable as exc:
+                raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+        @app.post("/metric-query")
+        def metric_query(payload: MetricQueryRequest, principal: Principal = Depends(require_principal)):
+            try:
+                if not security.active_locations(principal.user_id):
+                    raise HTTPException(status_code=403, detail="No active location grants for this user.")
+                return registry.query(
+                    payload.metric_id, payload.start_date, payload.end_date,
+                    payload.dimensions, payload.filters, user_id=principal.user_id,
+                )
+            except CatalogError as exc:
+                status = (
+                    503 if exc.code == "CATALOG_NOT_INSTALLED" else
+                    409 if exc.code in {"SOURCE_CHANGED", "LOCATION_SCOPE_REQUIRED"} else
+                    404 if exc.code == "NO_DATA" else 422
+                )
+                raise HTTPException(status_code=status, detail={"code": exc.code, "message": str(exc)}) from exc
+            except CompileError as exc:
+                raise HTTPException(status_code=422, detail={"code": exc.code, "message": str(exc)}) from exc
+            except DatabaseUnavailable as exc:
+                raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+        if ai_enabled:
+            @app.post("/select-ai/preview")
+            def select_ai_preview(
+                payload: SelectAIPreviewRequest,
+                principal: Principal = Depends(require_admin),
+            ):
+                try:
+                    return ai_explorer.generate_sql(payload.question)
+                except SelectAIError as exc:
+                    status = 422 if exc.code == "INVALID_PROMPT" else 503
+                    raise HTTPException(status_code=status, detail={"code": exc.code, "message": str(exc)}) from exc
 
     return app
 

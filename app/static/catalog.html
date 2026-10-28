@@ -27,11 +27,11 @@
         <div>
           <p class="eyebrow">ORACLE METRIC EXPLORER</p>
           <h1 id="hero-title">Ask for a number.<br><span>See its meaning.</span></h1>
-          <p class="hero-copy">Select a certified metric from your connected database. Every result carries its approved definition, owner, version, source view, and the exact query with bind values.</p>
+          <p class="hero-copy">Sign in, then select a certified metric from your connected database. Every result is limited to your active locations and carries its approved definition, owner, version, source view, and the exact query with bind values.</p>
         </div>
         <div class="hero-note" aria-label="How registered metrics work">
           <span class="note-check" aria-hidden="true">✓</span>
-          <div><strong>Definitions live in Oracle</strong><p>Metric owners register, review, and certify versioned definitions before they appear here. Queries read the source view and save answer provenance to an audit log.</p></div>
+          <div><strong>Definitions and access live in Oracle</strong><p>Metric owners certify versioned definitions. User and location grants are checked inside each query, and answer provenance is saved to an audit log.</p></div>
         </div>
       </section>
 
@@ -42,7 +42,21 @@
             <span class="read-only-tag">NO SOURCE WRITES</span>
           </div>
 
-          <p id="catalog-feedback" class="feedback" role="status" aria-live="polite">Loading certified metrics…</p>
+          <form id="access-form" class="access-form" autocomplete="off">
+            <label for="access-token">Application access token</label>
+            <div class="access-input-row">
+              <input id="access-token" name="access_token" type="password" autocomplete="off" spellcheck="false" required placeholder="Paste the token provided by your administrator">
+              <button id="access-connect" class="secondary-button" type="submit">Connect</button>
+            </div>
+            <p class="field-hint">The token stays in this page's memory and is cleared on refresh. Use HTTPS when connecting remotely.</p>
+            <p id="access-feedback" class="form-feedback" role="alert" hidden></p>
+          </form>
+          <div id="access-summary" class="access-summary" hidden>
+            <span id="access-summary-text"></span>
+            <button id="access-clear" class="secondary-button" type="button">Clear token</button>
+          </div>
+
+          <p id="catalog-feedback" class="feedback" role="status" aria-live="polite">Connect to load certified metrics.</p>
           <form id="metric-form" novalidate hidden>
             <div class="field">
               <label for="metric-select">Certified metric</label>
@@ -59,7 +73,7 @@
                 <input id="end-date" name="end_date" type="date" required>
               </div>
             </div>
-            <p class="field-hint">Use the first day of each month. For July through September, enter July 1 and October 1.</p>
+            <p class="field-hint">Use the first day of each month, up to 36 months apart. For July through September, enter July 1 and October 1.</p>
 
             <fieldset class="choice-fieldset" id="dimension-fieldset">
               <legend>Group by <span>(optional)</span></legend>

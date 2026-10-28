@@ -6,6 +6,7 @@
   "unit": "requisitions",
   "source_view": "WH_EXAMPLE_FILLED_REQUISITIONS",
   "date_column": "METRIC_DATE",
+  "location_column": "LOCATION_KEY",
   "value_column": null,
   "aggregation": "COUNT",
   "allowed_dims": ["STATE", "JOB_FAMILY"],

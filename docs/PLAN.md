@@ -21,4 +21,6 @@ A user asks a natural-language metric question and receives either a certified r
 
 ## Portability boundary
 
-The original five-metric natural-language walkthrough remains tied to synthetic workforce data. The portable path lets an adopter expose its own data through a reviewed, same-schema `WH_` view and save versioned `COUNT`, `SUM`, or `AVG` metric meanings in Oracle. It uses a structured certified metric explorer, approved identifiers, and bound values. See [`docs/ADOPTION.md`](ADOPTION.md) for installation, review, certification, and current access-control limits.
+The original five-metric natural-language walkthrough remains tied to synthetic workforce data. The portable path lets an adopter expose its own data through a reviewed, same-schema `WH_` view and save versioned `COUNT`, `SUM`, or `AVG` metric meanings in Oracle. It uses a structured certified metric explorer, approved identifiers, and bound values.
+
+The implemented extension adds database-backed users and location grants, a separate administration package, two-person metric approval, and an optional administrator-only Select AI SQL preview. Every portable answer binds the authenticated user and checks current grants in the same aggregate query. Existing metric versions without a location column need a new scoped version. The [adoption](ADOPTION.md), [security](SECURITY.md), [extension](EXTENDING.md), and [Select AI setup](SELECT_AI_SETUP.md) guides describe the current implementation and production privilege boundary.

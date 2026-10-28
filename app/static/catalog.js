@@ -6,6 +6,7 @@
   let activeMetric = null;
   let querySerial = 0;
   let queryController = null;
+  let bearerToken = null;
 
   function text(id, value) {
     byId(id).textContent = value == null ? "" : String(value);
@@ -35,7 +36,9 @@
   async function api(url, options) {
     let response;
     try {
-      response = await fetch(url, { cache: "no-store", ...options });
+      const headers = new Headers((options && options.headers) || {});
+      if (bearerToken && url !== "/health") headers.set("Authorization", `Bearer ${bearerToken}`);
+      response = await fetch(url, { cache: "no-store", ...options, headers });
     } catch (error) {
       if (error && error.name === "AbortError") throw error;
       throw new Error("The server could not be reached. Check the connection and try again.");
@@ -64,9 +67,10 @@
   async function checkHealth() {
     try {
       const health = await api("/health");
-      byId("demo-link").hidden = Object.hasOwn(health, "catalog");
       if (health.status === "ok" && health.database === "connected") {
         setConnection("connected", "Oracle connected");
+      } else if (health.security === "missing") {
+        setConnection("degraded", "Access setup needed");
       } else if (health.catalog === "missing") {
         setConnection("degraded", "Catalog setup needed");
       } else {
@@ -74,6 +78,56 @@
       }
     } catch {
       setConnection("degraded", "Connection unavailable");
+    }
+  }
+
+  function clearAccess() {
+    bearerToken = null;
+    metrics = [];
+    activeMetric = null;
+    if (queryController) queryController.abort();
+    querySerial += 1;
+    byId("access-token").value = "";
+    byId("access-form").hidden = false;
+    byId("access-summary").hidden = true;
+    byId("metric-form").hidden = true;
+    byId("reload-button").hidden = true;
+    byId("result-section").hidden = true;
+    renderDefinition(null);
+    text("catalog-feedback", "Connect to load certified metrics.");
+    byId("catalog-feedback").hidden = false;
+  }
+
+  async function connectAccess(event) {
+    event.preventDefault();
+    const candidate = byId("access-token").value.trim();
+    const feedback = byId("access-feedback");
+    feedback.hidden = true;
+    if (!/^[A-Za-z0-9_-]{43}$/.test(candidate)) {
+      feedback.textContent = "Enter the application token provided by your administrator.";
+      feedback.hidden = false;
+      return;
+    }
+    bearerToken = candidate;
+    byId("access-connect").disabled = true;
+    try {
+      const account = await api("/me");
+      if (!account || !account.user_id || !Array.isArray(account.locations)) {
+        throw new Error("The server returned an unreadable access profile.");
+      }
+      byId("access-token").value = "";
+      byId("access-form").hidden = true;
+      const locations = account.locations.map((item) => `${item.display_name} (${item.location_key})`);
+      const locationLabel = locations.length ? locations.join(", ") : "No active locations";
+      text("access-summary-text", `${account.display_name} · ${account.role} · ${locationLabel}`);
+      byId("access-summary").hidden = false;
+      await loadCatalog();
+    } catch (error) {
+      bearerToken = null;
+      feedback.textContent = error.message || "Access could not be verified.";
+      feedback.hidden = false;
+    } finally {
+      byId("access-connect").disabled = false;
     }
   }
 
@@ -177,7 +231,7 @@
     select.value = String(allowed.find((name) => !used.has(name)) || allowed[0]);
     const value = document.createElement("input");
     value.type = "text";
-    value.maxLength = 1000;
+    value.maxLength = 256;
     value.placeholder = "Exact value";
     value.setAttribute("aria-label", `Filter ${index} value`);
     const remove = document.createElement("button");
@@ -213,6 +267,11 @@
     const feedback = byId("catalog-feedback");
     feedback.hidden = false;
     feedback.className = "feedback";
+    if (!bearerToken) {
+      feedback.textContent = "Connect to load certified metrics.";
+      byId("metric-form").hidden = true;
+      return;
+    }
     feedback.textContent = "Loading certified metrics…";
     byId("metric-form").hidden = true;
     byId("reload-button").hidden = true;
@@ -331,6 +390,10 @@
       return showFormError("Enter the first day of a month for both dates.");
     }
     if (start >= end) return showFormError("The end month must come after the start month.");
+    const monthIndex = (value) => Number(value.slice(0, 4)) * 12 + Number(value.slice(5, 7));
+    if (monthIndex(end) - monthIndex(start) > 36) {
+      return showFormError("Choose a period of at most 36 months.");
+    }
     let filters;
     try {
       filters = collectFilters();
@@ -382,6 +445,8 @@
   }
 
   byId("metric-select").addEventListener("change", (event) => selectMetric(event.target.value));
+  byId("access-form").addEventListener("submit", connectAccess);
+  byId("access-clear").addEventListener("click", clearAccess);
   byId("metric-form").addEventListener("input", invalidateResult);
   byId("metric-form").addEventListener("change", invalidateResult);
   byId("add-filter").addEventListener("click", addFilter);
@@ -389,5 +454,4 @@
   byId("metric-form").addEventListener("submit", runQuery);
   defaultDates();
   void checkHealth();
-  void loadCatalog();
 })();

@@ -8,6 +8,7 @@ WH_METRIC_GOVERNANCE package; answer reads use a read-only transaction.
 
 from __future__ import annotations
 
+import hashlib
 import json
 from datetime import date, datetime
 from decimal import Decimal
@@ -26,9 +27,9 @@ class CatalogError(ValueError):
 
 _METRIC_COLUMNS = (
     "metric_id, version, name, owner, definition_text, unit, source_view, "
-    "date_column, value_column, aggregation, allowed_dims, allowed_filters, "
+    "date_column, location_column, value_column, aggregation, allowed_dims, allowed_filters, "
     "status, created_at, reviewed_at, reviewed_by, review_note, "
-    "certified_at, certified_by, source_ddl_at"
+    "certified_at, certified_by, source_ddl_at, source_ddl_sha256"
 )
 
 _TEXT_TYPES = {"VARCHAR2", "CHAR", "NVARCHAR2", "NCHAR"}
@@ -71,11 +72,15 @@ class RegisteredMetricRepository:
                 "Portable metric catalog is not installed. Run scripts/install_catalog.py --apply.",
             )
 
-    def list_certified(self) -> list[RegisteredMetric]:
+    def list_certified(self, *, scoped_only: bool = False) -> list[RegisteredMetric]:
         self.require_catalog()
+        location_clause = (
+            " AND LOCATION_COLUMN IS NOT NULL AND SOURCE_DDL_SHA256 IS NOT NULL"
+            if scoped_only else ""
+        )
         rows = self.database.run_readonly(
             f"SELECT {_METRIC_COLUMNS} FROM WH_REGISTERED_METRIC "
-            "WHERE STATUS = 'CERTIFIED' ORDER BY NAME, METRIC_ID",
+            "WHERE STATUS = 'CERTIFIED'" + location_clause + " ORDER BY NAME, METRIC_ID",
             {},
         )
         return [RegisteredMetric.from_row(row) for row in rows]
@@ -112,8 +117,8 @@ class RegisteredMetricRepository:
             binds = {}
         return [RegisteredMetric.from_row(row) for row in self.database.run_readonly(sql, binds)]
 
-    def validate_source(self, metric: RegisteredMetric) -> datetime:
-        """Check the exact view/column contract before review and every answer."""
+    def validate_source(self, metric: RegisteredMetric) -> tuple[datetime, str]:
+        """Check the owned view contract and hash its complete Oracle DDL CLOB."""
         owned_view = self.database.run_readonly(
             "SELECT VIEW_NAME FROM USER_VIEWS WHERE VIEW_NAME = :view_name",
             {"view_name": metric.source_view},
@@ -139,6 +144,8 @@ class RegisteredMetricRepository:
             )
         }
         needed = {metric.date_column, *metric.allowed_dims, *metric.allowed_filters}
+        if metric.location_column:
+            needed.add(metric.location_column)
         if metric.value_column:
             needed.add(metric.value_column)
         if any(name not in columns for name in needed):
@@ -148,17 +155,31 @@ class RegisteredMetricRepository:
             raise CatalogError("INVALID_DATE_COLUMN", "The metric date column must be DATE or TIMESTAMP without time zone.")
         if metric.value_column and columns[metric.value_column] not in _NUMBER_TYPES:
             raise CatalogError("INVALID_VALUE_COLUMN", "SUM and AVG require an Oracle numeric value column.")
+        if metric.location_column and columns[metric.location_column] not in _TEXT_TYPES:
+            raise CatalogError("INVALID_LOCATION_COLUMN", "The location key column must be an Oracle text column.")
         if any(columns[name] not in _TEXT_TYPES | _NUMBER_TYPES for name in (*metric.allowed_dims, *metric.allowed_filters)):
             raise CatalogError("INVALID_GROUPING_COLUMN", "Dimensions and filters must be text or numeric columns.")
-        return ddl_at
+        ddl_rows = self.database.run_readonly(
+            "SELECT DBMS_METADATA.GET_DDL('VIEW', :view_name) AS SOURCE_DDL FROM DUAL",
+            {"view_name": metric.source_view},
+        )
+        ddl = ddl_rows[0].get("source_ddl") if ddl_rows else None
+        if hasattr(ddl, "read"):
+            ddl = ddl.read()
+        if not isinstance(ddl, str) or not ddl:
+            raise CatalogError("SOURCE_VIEW_INVALID", "The complete adapter view DDL could not be read.")
+        return ddl_at, hashlib.sha256(ddl.encode("utf-8")).hexdigest()
 
-    def assert_certified_source(self, metric: RegisteredMetric) -> None:
-        ddl_at = self.validate_source(metric)
-        if metric.source_ddl_at is None or ddl_at != metric.source_ddl_at:
+    def assert_certified_source(self, metric: RegisteredMetric) -> str:
+        ddl_at, ddl_sha256 = self.validate_source(metric)
+        if (metric.source_ddl_at is None or ddl_at != metric.source_ddl_at
+                or metric.source_ddl_sha256 is None
+                or ddl_sha256 != metric.source_ddl_sha256):
             raise CatalogError(
                 "SOURCE_CHANGED",
                 "The adapter view changed after review. Create and certify a new metric version.",
             )
+        return ddl_sha256
 
     def _call_governance(self, procedure: str, arguments: list[Any], out_version: bool = False) -> int | None:
         conn = self.database._connect()
@@ -193,6 +214,7 @@ class RegisteredMetricRepository:
                 metric.unit,
                 metric.source_view,
                 metric.date_column,
+                metric.location_column,
                 metric.value_column,
                 metric.aggregation,
                 json.dumps(metric.allowed_dims),
@@ -210,11 +232,13 @@ class RegisteredMetricRepository:
         metric = self.get_version(metric_id, version)
         if metric is None or metric.status != "DRAFT":
             raise CatalogError("DRAFT_NOT_FOUND", "A draft with that ID and version does not exist.")
-        self.validate_source(metric)
+        _, ddl_sha256 = self.validate_source(metric)
         reviewer = _actor(reviewer, "Reviewer")
         if not note.strip() or len(note) > 16000 or any(ord(char) < 32 for char in note):
             raise CatalogError("INVALID_REVIEW_NOTE", "Review note must be 1–16,000 printable characters.")
-        self._call_governance("REVIEW_DRAFT", [metric.metric_id, metric.version, reviewer, note])
+        self._call_governance(
+            "REVIEW_DRAFT", [metric.metric_id, metric.version, reviewer, note, ddl_sha256],
+        )
         saved = self.get_version(metric.metric_id, metric.version)
         if saved is None:
             raise CatalogError("REVIEW_NOT_FOUND", "The reviewed draft could not be read back.")
@@ -225,11 +249,13 @@ class RegisteredMetricRepository:
         metric = self.get_version(metric_id, version)
         if metric is None or metric.status != "REVIEWED":
             raise CatalogError("REVIEW_REQUIRED", "The metric must be reviewed before certification.")
-        self.assert_certified_source(metric)
+        ddl_sha256 = self.assert_certified_source(metric)
         approver = _actor(approver, "Approver")
         if metric.reviewed_by and approver.casefold() == metric.reviewed_by.casefold():
             raise CatalogError("SEPARATION_OF_DUTIES", "The approver must differ from the reviewer.")
-        self._call_governance("CERTIFY", [metric.metric_id, metric.version, approver])
+        self._call_governance(
+            "CERTIFY", [metric.metric_id, metric.version, approver, ddl_sha256],
+        )
         saved = self.get_version(metric.metric_id, metric.version)
         if saved is None:
             raise CatalogError("CERTIFICATION_NOT_FOUND", "The certified metric could not be read back.")
@@ -237,18 +263,19 @@ class RegisteredMetricRepository:
 
     def log_answer(
         self, *, metric: RegisteredMetric, query: Mapping[str, Any], compiled_sql: str,
-        binds: Mapping[str, Any], row_count: int,
+        binds: Mapping[str, Any], row_count: int, asked_by: str | None,
     ) -> None:
         conn = self.database._connect()
         try:
             with conn.cursor() as cursor:
                 cursor.execute(
                     "INSERT INTO WH_REGISTERED_ANSWER_LOG "
-                    "(ASKED_AT, METRIC_ID, METRIC_VERSION, QUERY_JSON, COMPILED_SQL, BIND_JSON, ROW_COUNT) "
-                    "VALUES (SYSTIMESTAMP, :metric_id, :metric_version, :query_json, :compiled_sql, :bind_json, :row_count)",
+                    "(ASKED_AT, METRIC_ID, METRIC_VERSION, ASKED_BY, QUERY_JSON, COMPILED_SQL, BIND_JSON, ROW_COUNT) "
+                    "VALUES (SYSTIMESTAMP, :metric_id, :metric_version, :asked_by, :query_json, :compiled_sql, :bind_json, :row_count)",
                     {
                         "metric_id": metric.metric_id,
                         "metric_version": metric.version,
+                        "asked_by": asked_by,
                         "query_json": json.dumps(query, default=_json_value),
                         "compiled_sql": compiled_sql,
                         "bind_json": json.dumps(binds, default=_json_value),
@@ -265,18 +292,28 @@ class RegisteredMetricRepository:
     def query(
         self, metric_id: str, start_date: date, end_date: date,
         dimensions: Sequence[str] = (), filters: Mapping[str, Any] | None = None,
+        *, user_id: str | None = None,
     ) -> dict[str, Any]:
+        if not isinstance(user_id, str) or not user_id.strip():
+            raise CatalogError("AUTH_REQUIRED", "A verified application user is required for this metric query.")
         metric = self.get_certified(metric_id)
         if metric is None:
             raise CatalogError("METRIC_NOT_CERTIFIED", "No certified version of this metric exists.")
+        if metric.location_column is None:
+            raise CatalogError("LOCATION_SCOPE_REQUIRED", "This metric predates location security; certify a scoped version.")
         self.assert_certified_source(metric)
         normalized_dims = [name.upper() for name in dimensions]
         raw_filters = filters or {}
         normalized_filters = {str(name).upper(): value for name, value in raw_filters.items()}
         if len(normalized_filters) != len(raw_filters):
             raise CatalogError("DUPLICATE_FILTER", "A filter was repeated with different capitalization.")
-        compiled = compile_registered(metric, start_date, end_date, normalized_dims, normalized_filters)
-        raw_rows = self.database.run_readonly(compiled.sql, compiled.binds)
+        compiled = compile_registered(
+            metric, start_date, end_date, normalized_dims, normalized_filters,
+            scope_user_id=user_id,
+        )
+        raw_rows = self.database.run_readonly(
+            compiled.sql, compiled.binds, client_identifier=user_id,
+        )
         rows = [
             {str(key).lower(): _json_value(value) for key, value in row.items()}
             for row in raw_rows
@@ -289,10 +326,11 @@ class RegisteredMetricRepository:
             "end_date": end_date.isoformat(),
             "dimensions": normalized_dims,
             "filters": normalized_filters,
+            "asked_by": user_id,
         }
         self.log_answer(
             metric=metric, query=request, compiled_sql=compiled.sql,
-            binds=compiled.binds, row_count=len(rows),
+            binds=compiled.binds, row_count=len(rows), asked_by=user_id,
         )
         return {
             "tier": "CERTIFIED",
@@ -303,5 +341,9 @@ class RegisteredMetricRepository:
             "row_count": len(rows),
             "sql": compiled.sql,
             "binds": {key: _json_value(value) for key, value in compiled.binds.items()},
-            "coverage_note": "The adapter view owner is responsible for source completeness; this query reports matching rows only.",
+            "access": {"user_id": user_id, "location_scoped": True},
+            "coverage_note": (
+                "Results are limited to your active location grants. "
+                "The adapter view owner is responsible for source completeness."
+            ),
         }

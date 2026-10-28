@@ -1,0 +1,67 @@
+1
+00:00:00,000 --> 00:00:03,173
+Business questions deserve numbers you can trust.
+
+2
+00:00:03,213 --> 00:00:07,304
+Meet Ask the Warehouse, built on Oracle AI Database.
+
+3
+00:00:07,794 --> 00:00:14,198
+In our synthetic demo, Florida turnover is one point eight nine percent under the approved definition.
+
+4
+00:00:14,238 --> 00:00:19,031
+Count internal transfers and it rises to two point three three percent.
+
+5
+00:00:19,071 --> 00:00:20,642
+Same data, different meaning.
+
+6
+00:00:21,132 --> 00:00:28,279
+Each certified result shows its definition, owner, version, source view, compiled SQL and binds.
+
+7
+00:00:28,319 --> 00:00:30,332
+Oracle records answer provenance.
+
+8
+00:00:30,822 --> 00:00:33,526
+The query path is deliberately fixed.
+
+9
+00:00:33,566 --> 00:00:38,558
+A request chooses an approved metric; it never becomes executable SQL.
+
+10
+00:00:39,048 --> 00:00:42,098
+New metrics start as drafts in Oracle.
+
+11
+00:00:42,138 --> 00:00:44,746
+A reviewer validates the source contract.
+
+12
+00:00:44,786 --> 00:00:49,160
+A different approver certifies the version before it becomes available.
+
+13
+00:00:49,650 --> 00:00:55,994
+Location grants keep each user inside the data they are allowed to see, even when a question asks for more.
+
+14
+00:00:56,484 --> 00:00:59,863
+Select AI can help explore candidate questions.
+
+15
+00:00:59,903 --> 00:01:04,748
+The certified path uses reviewed, bound SQL for official answers.
+
+16
+00:01:05,238 --> 00:01:10,589
+Connect your own Oracle schema, map a source view, and ship governed answers.
+
+17
+00:01:10,629 --> 00:01:12,662
+Ask the Warehouse, on GitHub.

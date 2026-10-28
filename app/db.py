@@ -75,13 +75,28 @@ class OracleRepository:
             for row in cursor.fetchall()
         ]
 
-    def _select(self, sql: str, binds: Optional[Mapping[str, Any]] = None) -> List[Dict[str, Any]]:
+    def _select(
+        self, sql: str, binds: Optional[Mapping[str, Any]] = None,
+        *, client_identifier: str | None = None,
+    ) -> List[Dict[str, Any]]:
         if not sql.lstrip().upper().startswith(("SELECT ", "WITH ")) or ";" in sql:
             raise ValueError("Only one SELECT statement may be executed by the read adapter.")
+        if client_identifier is not None and (
+            not client_identifier or len(client_identifier) > 128
+            or any(ord(char) < 32 for char in client_identifier)
+        ):
+            raise ValueError("Client identifier must be a verified application user ID.")
         conn = self._connect()
         try:
             with conn.cursor() as cursor:
                 cursor.execute("SET TRANSACTION READ ONLY")
+                if client_identifier is not None:
+                    cursor.execute(
+                        "BEGIN DBMS_SESSION.SET_IDENTIFIER(:auth_user_id); END;",
+                        {"auth_user_id": client_identifier},
+                    )
+                else:
+                    cursor.execute("BEGIN DBMS_SESSION.CLEAR_IDENTIFIER; END;")
                 cursor.execute(sql, dict(binds or {}))
                 rows = self._rows(cursor)
             conn.rollback()
@@ -90,6 +105,12 @@ class OracleRepository:
             conn.rollback()
             raise DatabaseUnavailable("Oracle read failed. Check schema deployment and connection permissions.") from exc
         finally:
+            try:
+                with conn.cursor() as cursor:
+                    cursor.execute("BEGIN DBMS_SESSION.CLEAR_IDENTIFIER; END;")
+            except Exception:
+                # The next pooled read clears it again before accessing data.
+                pass
             conn.close()
 
     def health(self) -> bool:
@@ -125,8 +146,10 @@ class OracleRepository:
             "WHERE status = 'CERTIFIED' ORDER BY name"
         )
 
-    def run_readonly(self, sql: str, binds: Mapping[str, Any]) -> List[Dict[str, Any]]:
-        return self._select(sql, binds)
+    def run_readonly(
+        self, sql: str, binds: Mapping[str, Any], *, client_identifier: str | None = None
+    ) -> List[Dict[str, Any]]:
+        return self._select(sql, binds, client_identifier=client_identifier)
 
     def log_answer(
         self,

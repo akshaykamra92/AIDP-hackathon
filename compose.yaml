@@ -11,4 +11,6 @@ services:
       ORACLE_POOL_MAX: ${ORACLE_POOL_MAX:-4}
       DEMO_AS_OF_DATE: ${DEMO_AS_OF_DATE:-}
       APP_MODE: ${APP_MODE:-demo}
+      SELECT_AI_ENABLED: ${SELECT_AI_ENABLED:-false}
+      SELECT_AI_PROFILE: ${SELECT_AI_PROFILE:-WH_SELECT_AI_EXPLORE}
     restart: unless-stopped

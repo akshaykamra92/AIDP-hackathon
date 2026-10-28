@@ -21,8 +21,11 @@ from app.metrics import CompileError, CompiledQuery
 
 
 _IDENTIFIER = re.compile(r"[A-Z][A-Z0-9_$#]*\Z", re.ASCII)
+_SHA256 = re.compile(r"[0-9a-fA-F]{64}\Z", re.ASCII)
 _STATUSES = frozenset({"DRAFT", "REVIEWED", "CERTIFIED", "RETIRED"})
 _AGGREGATIONS = frozenset({"COUNT", "SUM", "AVG"})
+MAX_REPORTING_MONTHS = 36
+MAX_FILTER_STRING_LENGTH = 256
 _MANIFEST_KEYS = frozenset(
     {
         "metric_id",
@@ -32,6 +35,7 @@ _MANIFEST_KEYS = frozenset(
         "unit",
         "source_view",
         "date_column",
+        "location_column",
         "value_column",
         "aggregation",
         "allowed_dims",
@@ -112,6 +116,7 @@ class RegisteredMetric:
     unit: str
     source_view: str
     date_column: str
+    location_column: str | None
     value_column: str | None
     aggregation: str
     allowed_dims: tuple[str, ...]
@@ -124,6 +129,7 @@ class RegisteredMetric:
     certified_at: date | datetime | None = None
     certified_by: str | None = None
     source_ddl_at: date | datetime | None = None
+    source_ddl_sha256: str | None = None
 
     def __post_init__(self) -> None:
         _identifier(self.metric_id, "Metric ID", 64)
@@ -136,6 +142,8 @@ class RegisteredMetric:
         if not self.source_view.startswith("WH_"):
             raise CompileError("INVALID_SOURCE_VIEW", "The source must be an owned WH_ view.")
         _identifier(self.date_column, "Date column")
+        if self.location_column is not None:
+            _identifier(self.location_column, "Location column")
         if self.aggregation not in _AGGREGATIONS:
             raise CompileError("INVALID_AGGREGATION", "Use COUNT, SUM, or AVG.")
         if self.status not in _STATUSES:
@@ -157,6 +165,11 @@ class RegisteredMetric:
             _field(self.review_note, "Review note", 16000)
         if self.certified_by is not None:
             _field(self.certified_by, "Certifier", 120)
+        if self.source_ddl_sha256 is not None:
+            digest = _text(self.source_ddl_sha256)
+            if not _SHA256.fullmatch(digest):
+                raise CompileError("INVALID_SOURCE_DIGEST", "Source-view digest must be a SHA-256 hexadecimal value.")
+            object.__setattr__(self, "source_ddl_sha256", digest.lower())
 
     @classmethod
     def from_row(cls, row: Mapping[str, Any]) -> "RegisteredMetric":
@@ -171,6 +184,7 @@ class RegisteredMetric:
             unit=_text(data.get("unit")),
             source_view=_text(data.get("source_view")),
             date_column=_text(data.get("date_column")),
+            location_column=_text(data["location_column"]) if data.get("location_column") is not None else None,
             value_column=_text(data["value_column"]) if data.get("value_column") is not None else None,
             aggregation=_text(data.get("aggregation")),
             allowed_dims=_names(data.get("allowed_dims"), "Allowed dimensions"),
@@ -183,6 +197,7 @@ class RegisteredMetric:
             certified_at=data.get("certified_at"),
             certified_by=_text(data["certified_by"]) if data.get("certified_by") is not None else None,
             source_ddl_at=data.get("source_ddl_at"),
+            source_ddl_sha256=_text(data["source_ddl_sha256"]) if data.get("source_ddl_sha256") is not None else None,
         )
 
     @classmethod
@@ -194,6 +209,8 @@ class RegisteredMetric:
         unexpected = set(data) - _MANIFEST_KEYS
         if unexpected:
             raise CompileError("INVALID_MANIFEST", "The metric manifest contains unsupported fields.")
+        if data.get("location_column") is None:
+            raise CompileError("LOCATION_SCOPE_REQUIRED", "New metrics must name a location key column in the approved view.")
         return cls(
             metric_id=_text(data.get("metric_id")),
             version=version,
@@ -203,6 +220,7 @@ class RegisteredMetric:
             unit=_text(data.get("unit")),
             source_view=_text(data.get("source_view")),
             date_column=_text(data.get("date_column")),
+            location_column=_text(data.get("location_column")),
             value_column=_text(data["value_column"]) if data.get("value_column") is not None else None,
             aggregation=_text(data.get("aggregation")),
             allowed_dims=_names(data.get("allowed_dims"), "Allowed dimensions"),
@@ -221,6 +239,7 @@ class RegisteredMetric:
             "unit": self.unit,
             "source_view": self.source_view,
             "date_column": self.date_column,
+            "location_column": self.location_column,
             "aggregation": self.aggregation,
             "allowed_dims": list(self.allowed_dims),
             "allowed_filters": list(self.allowed_filters),
@@ -251,6 +270,7 @@ def compile_registered(
     dimensions: Sequence[str],
     filters: Mapping[str, Any],
     require_certified: bool = True,
+    scope_user_id: str | None = None,
 ) -> CompiledQuery:
     """Generate one fixed, read-only aggregate SELECT from validated metadata."""
     if not isinstance(metric, RegisteredMetric):
@@ -261,6 +281,9 @@ def compile_registered(
         raise CompileError("INVALID_PERIOD", "Reporting dates must be dates.")
     if start_date.day != 1 or end_date.day != 1 or start_date >= end_date:
         raise CompileError("INVALID_PERIOD", "Reporting periods must be full, half-open months.")
+    reporting_months = (end_date.year - start_date.year) * 12 + end_date.month - start_date.month
+    if reporting_months > MAX_REPORTING_MONTHS:
+        raise CompileError("PERIOD_TOO_LONG", "Reporting periods may span at most 36 months.")
     if isinstance(dimensions, (str, bytes)) or not isinstance(dimensions, Sequence):
         raise CompileError("UNSUPPORTED_DIMENSION", "Dimensions must be a list of approved columns.")
     selected_dims = tuple(_identifier(name, "Dimension") for name in dimensions)
@@ -272,23 +295,40 @@ def compile_registered(
         raise CompileError("UNSUPPORTED_FILTER", "Filters must be an object of approved columns and scalar values.")
 
     binds: dict[str, Any] = {"start_date": start_date, "end_date": end_date}
-    conditions = [f"{metric.date_column} >= :start_date", f"{metric.date_column} < :end_date"]
+    conditions = [f"src.{metric.date_column} >= :start_date", f"src.{metric.date_column} < :end_date"]
+    if scope_user_id is not None:
+        user_id = scope_user_id.strip()
+        if not user_id or len(user_id) > 128 or any(ord(char) < 32 for char in user_id):
+            raise CompileError("INVALID_USER", "An authenticated user ID is required for a scoped query.")
+        if metric.location_column is None:
+            raise CompileError("LOCATION_SCOPE_REQUIRED", "This metric predates location security; certify a scoped version.")
+        binds["auth_user_id"] = user_id
+        conditions.append(
+            "EXISTS (SELECT 1 FROM WH_USER_LOCATION acl "
+            "JOIN WH_SEC_LOCATION loc ON loc.LOCATION_KEY = acl.LOCATION_KEY "
+            "JOIN WH_APP_USER usr ON usr.USER_ID = acl.USER_ID "
+            "WHERE acl.USER_ID = :auth_user_id AND usr.STATUS = 'ACTIVE' "
+            "AND acl.STATUS = 'ACTIVE' AND loc.STATUS = 'ACTIVE' "
+            f"AND acl.LOCATION_KEY = src.{metric.location_column})"
+        )
     validated_filters = [(_identifier(name, "Filter"), value) for name, value in filters.items()]
     for index, (column, value) in enumerate(sorted(validated_filters)):
         if column not in metric.allowed_filters:
             raise CompileError("UNSUPPORTED_FILTER", "A filter is not approved for this metric.")
         if not _bind_scalar(value):
             raise CompileError("INVALID_FILTER_VALUE", "Filter values must be finite scalars.")
+        if isinstance(value, str) and len(value) > MAX_FILTER_STRING_LENGTH:
+            raise CompileError("FILTER_TOO_LONG", "Text filter values may contain at most 256 characters.")
         bind_name = f"f{index}"
         binds[bind_name] = value
-        conditions.append(f"{column} = :{bind_name}")
+        conditions.append(f"src.{column} = :{bind_name}")
 
-    target = "*" if metric.aggregation == "COUNT" else metric.value_column
+    target = "*" if metric.aggregation == "COUNT" else f"src.{metric.value_column}"
     aggregate = f"{metric.aggregation}({target})"
-    count_target = "*" if metric.aggregation == "COUNT" else metric.value_column
-    projection = ", ".join(selected_dims)
+    count_target = "*" if metric.aggregation == "COUNT" else f"src.{metric.value_column}"
+    projection = ", ".join(f"src.{name}" for name in selected_dims)
     sql = "SELECT " + (projection + ", " if projection else "") + aggregate + " AS value"
-    sql += f" FROM {metric.source_view} WHERE " + " AND ".join(conditions)
+    sql += f" FROM {metric.source_view} src WHERE " + " AND ".join(conditions)
     if selected_dims:
         sql += " GROUP BY " + projection
     sql += f" HAVING COUNT({count_target}) > 0"

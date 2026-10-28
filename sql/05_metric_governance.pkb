@@ -100,6 +100,7 @@ CREATE OR REPLACE PACKAGE BODY WH_METRIC_GOVERNANCE AS
     PROCEDURE CHECK_SOURCE_COLUMNS (
         p_source_view  IN VARCHAR2,
         p_date_column IN VARCHAR2,
+        p_location_column IN VARCHAR2,
         p_value_column IN VARCHAR2,
         p_aggregation IN VARCHAR2
     ) IS
@@ -112,6 +113,14 @@ CREATE OR REPLACE PACKAGE BODY WH_METRIC_GOVERNANCE AS
         IF v_data_type <> 'DATE'
            AND (v_data_type NOT LIKE 'TIMESTAMP%' OR v_data_type LIKE '%TIME ZONE%') THEN
             RAISE_APPLICATION_ERROR(-20005, 'Date column must be DATE or TIMESTAMP without time zone.');
+        END IF;
+
+        SELECT DATA_TYPE INTO v_data_type
+        FROM USER_TAB_COLUMNS
+        WHERE TABLE_NAME = p_source_view
+          AND COLUMN_NAME = p_location_column;
+        IF v_data_type NOT IN ('VARCHAR2', 'CHAR', 'NVARCHAR2', 'NCHAR') THEN
+            RAISE_APPLICATION_ERROR(-20005, 'Location key column must be text.');
         END IF;
 
         IF p_aggregation IN ('SUM', 'AVG') THEN
@@ -136,6 +145,7 @@ CREATE OR REPLACE PACKAGE BODY WH_METRIC_GOVERNANCE AS
         p_unit            IN VARCHAR2,
         p_source_view     IN VARCHAR2,
         p_date_column     IN VARCHAR2,
+        p_location_column IN VARCHAR2,
         p_value_column    IN VARCHAR2,
         p_aggregation     IN VARCHAR2,
         p_allowed_dims    IN CLOB,
@@ -145,6 +155,7 @@ CREATE OR REPLACE PACKAGE BODY WH_METRIC_GOVERNANCE AS
         v_metric_id VARCHAR2(128);
         v_source_view VARCHAR2(128);
         v_date_column VARCHAR2(128);
+        v_location_column VARCHAR2(128);
         v_value_column VARCHAR2(128);
         v_aggregation VARCHAR2(128);
     BEGIN
@@ -154,6 +165,7 @@ CREATE OR REPLACE PACKAGE BODY WH_METRIC_GOVERNANCE AS
         END IF;
         v_source_view := NORMAL_NAME(p_source_view, TRUE);
         v_date_column := NORMAL_NAME(p_date_column);
+        v_location_column := NORMAL_NAME(p_location_column);
         v_aggregation := UPPER(TRIM(p_aggregation));
         IF v_aggregation NOT IN ('COUNT', 'SUM', 'AVG') OR v_aggregation IS NULL THEN
             RAISE_APPLICATION_ERROR(-20001, 'Unsupported aggregate.');
@@ -181,11 +193,11 @@ CREATE OR REPLACE PACKAGE BODY WH_METRIC_GOVERNANCE AS
 
         INSERT INTO WH_REGISTERED_METRIC (
             METRIC_ID, VERSION, NAME, OWNER, DEFINITION_TEXT, UNIT,
-            SOURCE_VIEW, DATE_COLUMN, VALUE_COLUMN, AGGREGATION,
+            SOURCE_VIEW, DATE_COLUMN, LOCATION_COLUMN, VALUE_COLUMN, AGGREGATION,
             ALLOWED_DIMS, ALLOWED_FILTERS, STATUS
         ) VALUES (
             v_metric_id, p_version, TRIM(p_name), TRIM(p_owner), p_definition_text, TRIM(p_unit),
-            v_source_view, v_date_column, v_value_column, v_aggregation,
+            v_source_view, v_date_column, v_location_column, v_value_column, v_aggregation,
             p_allowed_dims, p_allowed_filters, 'DRAFT'
         );
     EXCEPTION
@@ -194,19 +206,26 @@ CREATE OR REPLACE PACKAGE BODY WH_METRIC_GOVERNANCE AS
     END CREATE_DRAFT;
 
     PROCEDURE REVIEW_DRAFT (
-        p_metric_id   IN VARCHAR2,
-        p_version     IN NUMBER,
-        p_reviewer    IN VARCHAR2,
-        p_review_note IN CLOB
+        p_metric_id         IN VARCHAR2,
+        p_version           IN NUMBER,
+        p_reviewer          IN VARCHAR2,
+        p_review_note       IN CLOB,
+        p_source_ddl_sha256 IN VARCHAR2
     ) IS
         v_metric WH_REGISTERED_METRIC%ROWTYPE;
         v_last_ddl DATE;
         v_metric_id VARCHAR2(128);
+        v_source_hash VARCHAR2(64);
     BEGIN
         IF TRIM(p_reviewer) IS NULL OR LENGTH(TRIM(p_reviewer)) > 120
            OR NVL(DBMS_LOB.GETLENGTH(p_review_note), 0) NOT BETWEEN 1 AND 16000
            OR TRIM(DBMS_LOB.SUBSTR(p_review_note, 16000, 1)) IS NULL THEN
             RAISE_APPLICATION_ERROR(-20001, 'Reviewer and review note are required.');
+        END IF;
+        v_source_hash := LOWER(TRIM(p_source_ddl_sha256));
+        IF v_source_hash IS NULL OR LENGTH(v_source_hash) <> 64
+           OR NOT REGEXP_LIKE(v_source_hash, '^[0-9a-f]{64}$') THEN
+            RAISE_APPLICATION_ERROR(-20001, 'A complete source view SHA-256 digest is required.');
         END IF;
         v_metric_id := NORMAL_NAME(p_metric_id);
         SELECT * INTO v_metric
@@ -222,6 +241,7 @@ CREATE OR REPLACE PACKAGE BODY WH_METRIC_GOVERNANCE AS
         CHECK_SOURCE_COLUMNS(
             v_metric.SOURCE_VIEW,
             v_metric.DATE_COLUMN,
+            v_metric.LOCATION_COLUMN,
             v_metric.VALUE_COLUMN,
             v_metric.AGGREGATION
         );
@@ -233,7 +253,8 @@ CREATE OR REPLACE PACKAGE BODY WH_METRIC_GOVERNANCE AS
             REVIEWED_AT = SYSTIMESTAMP,
             REVIEWED_BY = TRIM(p_reviewer),
             REVIEW_NOTE = p_review_note,
-            SOURCE_DDL_AT = v_last_ddl
+            SOURCE_DDL_AT = v_last_ddl,
+            SOURCE_DDL_SHA256 = v_source_hash
         WHERE METRIC_ID = v_metric.METRIC_ID
           AND VERSION = v_metric.VERSION;
     EXCEPTION
@@ -242,9 +263,10 @@ CREATE OR REPLACE PACKAGE BODY WH_METRIC_GOVERNANCE AS
     END REVIEW_DRAFT;
 
     PROCEDURE CERTIFY (
-        p_metric_id IN VARCHAR2,
-        p_version   IN NUMBER,
-        p_approver  IN VARCHAR2
+        p_metric_id         IN VARCHAR2,
+        p_version           IN NUMBER,
+        p_approver          IN VARCHAR2,
+        p_source_ddl_sha256 IN VARCHAR2
     ) IS
         v_metric WH_REGISTERED_METRIC%ROWTYPE;
         v_last_ddl DATE;
@@ -262,6 +284,9 @@ CREATE OR REPLACE PACKAGE BODY WH_METRIC_GOVERNANCE AS
         IF v_metric.STATUS <> 'REVIEWED' THEN
             RAISE_APPLICATION_ERROR(-20008, 'Metric version has not been reviewed.');
         END IF;
+        IF v_metric.LOCATION_COLUMN IS NULL THEN
+            RAISE_APPLICATION_ERROR(-20008, 'Metric version has no location scope. Create a new scoped version.');
+        END IF;
         IF UPPER(TRIM(p_approver)) = UPPER(TRIM(v_metric.REVIEWED_BY)) THEN
             RAISE_APPLICATION_ERROR(-20008, 'Reviewer and approver must differ.');
         END IF;
@@ -269,6 +294,11 @@ CREATE OR REPLACE PACKAGE BODY WH_METRIC_GOVERNANCE AS
         v_last_ddl := CHECK_SOURCE_VIEW(v_metric.SOURCE_VIEW);
         IF v_metric.SOURCE_DDL_AT IS NULL OR v_last_ddl <> v_metric.SOURCE_DDL_AT THEN
             RAISE_APPLICATION_ERROR(-20008, 'Source view changed after review.');
+        END IF;
+        IF v_metric.SOURCE_DDL_SHA256 IS NULL
+           OR LENGTH(v_metric.SOURCE_DDL_SHA256) <> 64
+           OR v_metric.SOURCE_DDL_SHA256 <> LOWER(TRIM(p_source_ddl_sha256)) THEN
+            RAISE_APPLICATION_ERROR(-20008, 'Source view digest is missing or changed after review.');
         END IF;
 
         UPDATE WH_REGISTERED_METRIC
